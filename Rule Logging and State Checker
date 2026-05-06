@@ -82,7 +82,8 @@ definition(
     installOnOpen:  true,
     oauth:          true,
     iconUrl:   '',
-    iconX2Url: ''
+    iconX2Url: '',
+    importUrl: "https://raw.githubusercontent.com/JohnFLand/Rule-Logging-and-State-Checker/36e9d7206e36324d3c3289d5b4fa740ea815d9e8/Rule%20Logging%20and%20State%20Checker"
 )
 
 preferences {
