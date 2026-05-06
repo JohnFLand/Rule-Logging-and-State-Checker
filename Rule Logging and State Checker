@@ -19,6 +19,14 @@
  *  - Private Boolean toggling uses RMUtils.sendAction() with RM version "5.0".
  *    Rules from earlier RM versions will display PB state but the toggle may not work.
  *
+ *  v1.43 — App Type column is now hideable via toggle bar and Custom Column Settings
+ *  v1.42 — OAuth token now created automatically on every page open (no Generate Token button needed);
+ *           re-opening the app after enabling OAuth in Apps Code is sufficient
+ *  v1.41 — Fix "Unexpected end of JSON input" on PB toggle: renderJson() now returns the render
+ *           result so Hubitat sends a response body from the OAuth endpoint; JS also reads
+ *           response as text before parsing so empty-body errors are reported clearly
+ *  v1.40 — BC rules show — in Events column (BC has no Events logging option);
+ *           anyOn calculation for BC rules excludes Events so No logging ON filter is correct
  *  v1.39 — Three pre-release fixes:
  *           - rmToggleLogging() now updates rmrow-logoff class and calls applyRmRowFilters()
  *             so No logging ON row filter stays correct after toggling Actions/Events/Triggers
@@ -65,7 +73,7 @@ import groovy.transform.Field
 @Field static Map       scanPartialResults = null   // keyed by ruleId String
 
 definition(
-    name:        "Rule Logging and State Checker 1.39",
+    name:        "Rule Logging and State Checker 1.43",
     namespace:   "johnland",
     author:      "John Land & AI",
     description: "Reports Rule Machine and Button Controller rules that have logging selected for Actions, Events, and/or Triggers, and shows/toggles Private Boolean state.",
@@ -96,14 +104,13 @@ mappings {
 // ============================================================
 
 def installed() {
-    ensureAccessToken()
+    ensureAccessToken()   // attempt token on first install; mainPage() covers subsequent opens
     initialize()
     runIn(10, "findLoggingRules")
 }
 
 def updated() {
     boolean scanWasActive = (currentScanId != null)
-    ensureAccessToken()
     initialize()
     if (scanWasActive) {
         state.reportHtml = "<p><i>Scan was cancelled because app settings were saved. Click <b>Scan RM / BC Rules</b> to run again.</i></p>"
@@ -152,27 +159,45 @@ void reRenderReportIfCached() {
 
 // ── OAuth token management ────────────────────────────────────────────────────
 
+// Called from mainPage() on every page open. Silently attempts to create the token
+// if absent. Returns true when a token is available, false if OAuth is not yet enabled
+// in Apps Code. No logging on success — this runs on every page open.
+boolean checkOAuth() {
+    if (state.accessToken) return true
+    try {
+        createAccessToken()
+        if (state.accessToken) {
+            log.info "Rule Logging and State Checker: OAuth token created on page open"
+            return true
+        }
+    } catch (Exception e) {
+        // OAuth not yet enabled in Apps Code — caller will show setup instructions
+    }
+    return false
+}
+
+// Used only by installed() for the first-run attempt; logs outcome for diagnostics.
 void ensureAccessToken() {
     if (!state.accessToken) {
         try {
             createAccessToken()
             if (state.accessToken) {
-                log.info "Rule PB Monitor: access token created successfully (${state.accessToken.take(8)}…)"
+                log.info "Rule Logging and State Checker: access token created on install (${state.accessToken.take(8)}…)"
             } else {
-                log.warn "Rule PB Monitor: createAccessToken() ran but state.accessToken is still null — OAuth may not be enabled for this app"
+                log.warn "Rule Logging and State Checker: createAccessToken() ran but token is still null — enable OAuth in Apps Code"
             }
         } catch (Exception e) {
-            log.warn "Rule PB Monitor: createAccessToken() threw — OAuth likely not enabled for this app instance. Error: ${e.message}"
+            log.warn "Rule Logging and State Checker: OAuth not yet enabled in Apps Code — token will be created on first page open after enabling it"
         }
-    } else {
-        log.debug "Rule PB Monitor: access token already present (${state.accessToken.take(8)}…)"
     }
 }
 
 // ── Private Boolean OAuth endpoint ───────────────────────────────────────────
 
-void renderJson(Map m) {
-    render contentType: "application/json", data: groovy.json.JsonOutput.toJson(m)
+// Returns the render result so Hubitat's OAuth dispatcher receives a response body.
+// Declared as def (not void) for this reason — a void helper causes an empty HTTP response.
+def renderJson(Map m) {
+    return render(contentType: "application/json", data: groovy.json.JsonOutput.toJson(m))
 }
 
 def handleSetPBEndpoint() {
@@ -181,20 +206,17 @@ def handleSetPBEndpoint() {
 
     if (!ruleId || pbValue == null) {
         log.warn "setPB endpoint called with missing params: id=${ruleId} value=${pbValue}"
-        renderJson([status: "error", message: "Missing id or value parameter"])
-        return
+        return renderJson([status: "error", message: "Missing id or value parameter"])
     }
 
     if (!(ruleId ==~ /\d+/)) {
         log.warn "setPB endpoint: invalid rule id '${ruleId}'"
-        renderJson([status: "error", message: "Invalid rule id"])
-        return
+        return renderJson([status: "error", message: "Invalid rule id"])
     }
 
     if (!(pbValue in ["true", "false"])) {
         log.warn "setPB endpoint: invalid value '${pbValue}'"
-        renderJson([status: "error", message: "Invalid value parameter — must be 'true' or 'false'"])
-        return
+        return renderJson([status: "error", message: "Invalid value parameter — must be 'true' or 'false'"])
     }
 
     String action = (pbValue == "true") ? "setRuleBooleanTrue" : "setRuleBooleanFalse"
@@ -202,10 +224,10 @@ def handleSetPBEndpoint() {
     try {
         RMUtils.sendAction([ruleId], action, app.label, RM_VERSION)
         if (debugEnable) log.debug "setPB: rule ${ruleId} → ${action}"
-        renderJson([status: "success"])
+        return renderJson([status: "success"])
     } catch (Exception e) {
         log.warn "setPB failed for rule ${ruleId} (${action}): ${e.message}"
-        renderJson([status: "error", message: e.message ?: "Unknown error"])
+        return renderJson([status: "error", message: e.message ?: "Unknown error"])
     }
 }
 
@@ -214,6 +236,10 @@ def handleSetPBEndpoint() {
 // ============================================================
 
 def mainPage() {
+    // Attempt to create the OAuth token on every page open — covers the case where the
+    // user has just enabled OAuth in Apps Code and re-opened the app.
+    checkOAuth()
+
     int pollInterval = currentScanId ? 5 : 0
     dynamicPage(name: "mainPage", title: "", install: true, uninstall: true, refreshInterval: pollInterval) {
 
@@ -223,16 +249,16 @@ def mainPage() {
 
         // ── Private Boolean toggle status ─────────────────────────────────────
         // The PB column is only clickable when an OAuth access token exists.
-        // One-time setup: Apps Code → this app → OAuth → Enable OAuth, then press Generate Token.
+        // One-time setup: Apps Code → this app → OAuth → Enable OAuth in Smartapp,
+        // then simply re-open this app — the token is created automatically.
         section("") {
             if (state.accessToken) {
                 paragraph "<span style='color:green;font-weight:bold;'>✓ PB toggle active</span> — Private Bool cells in the table are clickable."
             } else {
                 paragraph "<span style='color:red;font-weight:bold;'>✗ PB toggle NOT active</span> — one-time setup required:<br>" +
                           "1. Go to <b>Apps Code</b>, open this app, click <b>OAuth</b>, and press <b>Enable OAuth in Smartapp</b>.<br>" +
-                          "2. Return here and press <b>Generate Token</b> below.<br>" +
+                          "2. Return here and re-open the app — the token will be created automatically.<br>" +
                           "3. The status above will turn green. Then scan to activate clickable PB cells."
-                input "btnGenerateToken", "button", title: "Generate Token"
             }
         }
 
@@ -265,6 +291,7 @@ def mainPage() {
             input "hideRowPaused",   "bool", title: "Hide 'Paused rules' rows",    defaultValue: false
             input "hideRowLogOff",   "bool", title: "Hide 'No logging ON' rows",   defaultValue: true
             paragraph "<b>Hide Columns</b> — choose which columns start hidden when the table loads."
+            input "hideColAppType",  "bool", title: "Hide 'App Type' column",      defaultValue: false
             input "hideColDisabled", "bool", title: "Hide 'Disabled' column",      defaultValue: false
             input "hideColPaused",   "bool", title: "Hide 'Paused' column",        defaultValue: false
             input "hideColActions",  "bool", title: "Hide 'Actions' column",       defaultValue: false
@@ -272,7 +299,8 @@ def mainPage() {
             input "hideColTriggers", "bool", title: "Hide 'Triggers' column",      defaultValue: false
             input "hideColPB",       "bool", title: "Hide 'Private Bool' column",  defaultValue: false
             input "hideColLastRun",  "bool", title: "Hide 'Last Run' column",      defaultValue: false
-            paragraph "<small>Changes take effect after clicking Done — no rescan needed.</small>"
+            paragraph "<small>Setting changes take effect after clicking Done — no rescan needed. " +
+                      "However, if you have just installed a new version of the app, run a fresh scan once to regenerate the table with any new columns or buttons.</small>"
         }
 
         section("Notes", hideable: true, hidden: true) {
@@ -306,9 +334,9 @@ def mainPage() {
                 targets RM version ${RM_VERSION} rules. The cell updates immediately if the call succeeds.
                 Cells showing <b>—</b> mean the Private Boolean state could not be read for that rule and
                 are not clickable. <b>One-time setup required:</b> go to Apps Code, open this app, click
-                OAuth, and press Enable OAuth in Smartapp. Then return here and press Generate Token —
-                the status section will confirm active status. This step only needs to be done once;
-                the token persists across hub reboots and app updates.
+                OAuth, and press Enable OAuth in Smartapp. Then simply re-open the app — the token is
+                created automatically and the PB toggle status at the top of the page will confirm it.
+                This step only needs to be done once; the token persists across hub reboots and app updates.
                 <br>
                 The <b>Last Run</b> column shows the date and time of the most recent trigger event for
                 each rule, sourced from the <code>lastEvtDate</code>, <code>lastEvtTime</code>, and
@@ -342,20 +370,6 @@ def appButtonHandler(String btn) {
     switch (btn) {
         case "btnScan":
             findLoggingRules()
-            break
-        case "btnGenerateToken":
-            log.info "Rule PB Monitor: btnGenerateToken pressed"
-            try {
-                createAccessToken()
-                if (state.accessToken) {
-                    log.info "Rule PB Monitor: token generated successfully (${state.accessToken.take(8)}…)"
-                } else {
-                    log.warn "Rule PB Monitor: createAccessToken() ran but state.accessToken is still null"
-                }
-            } catch (Exception e) {
-                log.error "Rule PB Monitor: Generate Token failed — ${e.message}"
-                state.lastError = "Generate Token failed: ${e.message}"
-            }
             break
         default:
             log.warn "Unknown button: ${btn}"
@@ -680,21 +694,6 @@ String getSupportedAutomationAppType(String type, String name, String label = ""
 // ============================================================
 
 Map detectRuleLogging(Map status) {
-    /*
-     * We check multiple places because Hubitat/RM internals can vary by version.
-     * Common field names are expected to be things like:
-     *   logActions      = true
-     *   logEvents       = true
-     *   logTriggers     = true
-     *
-     * This also tries to catch variants such as:
-     *   actionsLogging  = true
-     *   eventsLogging   = true
-     *   triggersLogging = true
-     *   logging         = ["Actions", "Events", "Triggers"]
-     *   logAll          = true
-     */
-
     List<Map> candidates = []
 
     collectCandidatesFromObject("appSettings", status?.appSettings, candidates)
@@ -717,7 +716,6 @@ Map detectRuleLogging(Map status) {
         allLoggingField : allResult.fieldName      as String
     ]
 
-    // When no field names were resolved, log candidates to aid diagnosis of unrecognised field names
     if (!result.actionsField && !result.eventsField && !result.triggersField && !result.allLoggingField) {
         List<String> logCandidates = candidates
             .findAll { String k = it.name?.toString()?.toLowerCase() ?: ""; k.contains("log") || k.contains("debug") }
@@ -784,8 +782,6 @@ void collectCandidatesFromObject(String source, Object obj, List<Map> candidates
 }
 
 void collectCandidatesFromObject(String source, Object obj, List<Map> candidates, String prefix, int depth) {
-    // Depth cap: RM/BC statusJson nesting is typically ≤ 3 levels; 4 is a safe ceiling that prevents
-    // runaway recursion on unexpectedly deep structures.
     if (obj == null || depth > 4) return
 
     if (obj instanceof Map) {
@@ -845,9 +841,6 @@ Boolean asBooleanLoose(Object value) {
 // Private Boolean extraction
 // ============================================================
 
-// Returns true/false when the "private" field is present in appState,
-// or null when the field is absent (status unreadable or rule returned no appState).
-// Callers should treat null as unknown, not as false.
 Boolean extractPrivateBool(Map status) {
     for (def item : (status?.appState ?: [])) {
         if (item?.name?.toString() == "private") {
@@ -879,30 +872,22 @@ String extractLastRun(Map status) {
     java.text.SimpleDateFormat outDateFmt     = new java.text.SimpleDateFormat("yyyy-MM-dd")
     java.text.SimpleDateFormat outTimeFmt     = new java.text.SimpleDateFormat("HH:mm")
 
-    // Determine whether lastEvtDate contains a time component.
-    // A time component is indicated by a colon after the first 6 characters (to skip
-    // over dd-MMM-yyyy's absence of colons) or by AM/PM anywhere in the string.
     boolean hasTimeComponent = lastEvtDate.toUpperCase().contains("AM") ||
                                lastEvtDate.toUpperCase().contains("PM") ||
                                lastEvtDate.indexOf(":", 6) >= 0
 
     if (hasTimeComponent) {
         List<String> fullDateFmts = [
-            "dd-MMM-yyyy hh:mm:ss a",
-            "dd-MMM-yyyy HH:mm:ss",
-            "dd-MMM-yyyy hh:mm a",
-            "dd-MMM-yyyy HH:mm",
-            "MM/dd/yyyy hh:mm:ss a",
-            "MM/dd/yyyy HH:mm:ss",
-            "yyyy-MM-dd HH:mm:ss",
-            "yyyy-MM-dd hh:mm:ss a"
+            "dd-MMM-yyyy hh:mm:ss a", "dd-MMM-yyyy HH:mm:ss",
+            "dd-MMM-yyyy hh:mm a",    "dd-MMM-yyyy HH:mm",
+            "MM/dd/yyyy hh:mm:ss a",  "MM/dd/yyyy HH:mm:ss",
+            "yyyy-MM-dd HH:mm:ss",    "yyyy-MM-dd hh:mm:ss a"
         ]
         for (String fmt : fullDateFmts) {
-            try {
-                return outDateTimeFmt.format(new java.text.SimpleDateFormat(fmt).parse(lastEvtDate))
-            } catch (Exception ignored) {}
+            try { return outDateTimeFmt.format(new java.text.SimpleDateFormat(fmt).parse(lastEvtDate)) }
+            catch (Exception ignored) {}
         }
-        log.warn "extractLastRun: unrecognized full datetime '${lastEvtDate}' — add format to extractLastRun if needed"
+        log.warn "extractLastRun: unrecognized full datetime '${lastEvtDate}'"
         return "* ${lastEvtDate}"
     }
 
@@ -910,17 +895,11 @@ String extractLastRun(Map status) {
         List<String> dateFmts = ["dd-MMM-yyyy", "MM/dd/yyyy", "dd/MM/yyyy", "MMM dd, yyyy"]
         String normalizedDate = null
         for (String fmt : dateFmts) {
-            try {
-                normalizedDate = outDateFmt.format(new java.text.SimpleDateFormat(fmt).parse(lastEvtDate))
-                break
-            } catch (Exception ignored) {}
+            try { normalizedDate = outDateFmt.format(new java.text.SimpleDateFormat(fmt).parse(lastEvtDate)); break }
+            catch (Exception ignored) {}
         }
-        if (normalizedDate) {
-            lastEvtDate = normalizedDate
-        } else {
-            log.warn "extractLastRun: unrecognized date format '${lastEvtDate}' — add format to extractLastRun if needed"
-            lastEvtDate = "* ${lastEvtDate}"
-        }
+        if (normalizedDate) { lastEvtDate = normalizedDate }
+        else { log.warn "extractLastRun: unrecognized date '${lastEvtDate}'"; lastEvtDate = "* ${lastEvtDate}" }
     }
 
     if (!lastEvtTime) return lastEvtDate
@@ -928,12 +907,11 @@ String extractLastRun(Map status) {
     List<String> timeFmts = timeFormat ? [timeFormat] : []
     timeFmts += ["hh:mm:ss a", "h:mm:ss a", "HH:mm:ss", "hh:mm a", "h:mm a", "HH:mm", "h:mm"]
     for (String fmt : timeFmts) {
-        try {
-            return "${lastEvtDate} ${outTimeFmt.format(new java.text.SimpleDateFormat(fmt).parse(lastEvtTime))}"
-        } catch (Exception ignored) {}
+        try { return "${lastEvtDate} ${outTimeFmt.format(new java.text.SimpleDateFormat(fmt).parse(lastEvtTime))}" }
+        catch (Exception ignored) {}
     }
 
-    log.warn "extractLastRun: could not parse time '${lastEvtTime}' (timeFormat='${timeFormat}') — add format to extractLastRun if needed"
+    log.warn "extractLastRun: could not parse time '${lastEvtTime}' (timeFormat='${timeFormat}')"
     return "* ${lastEvtDate} ${lastEvtTime}"
 }
 
@@ -950,6 +928,7 @@ String buildReportHtml(List<Map> rows) {
     boolean cfgHideRowDisabled = settings.hideRowDisabled ?: false
     boolean cfgHideRowPaused   = settings.hideRowPaused   ?: false
     boolean cfgHideRowLogOff   = (settings.hideRowLogOff  != null) ? (settings.hideRowLogOff  as boolean) : true
+    boolean cfgHideColAppType  = settings.hideColAppType  ?: false
     boolean cfgHideColDisabled = settings.hideColDisabled ?: false
     boolean cfgHideColPaused   = settings.hideColPaused   ?: false
     boolean cfgHideColActions  = settings.hideColActions  ?: false
@@ -958,14 +937,11 @@ String buildReportHtml(List<Map> rows) {
     boolean cfgHideColPB       = settings.hideColPB       ?: false
     boolean cfgHideColLastRun  = settings.hideColLastRun  ?: false
 
-    // Build the local OAuth endpoint URL for PB toggling (relative — no hub IP).
-    // The access token is embedded in the rendered HTML so the JS click handler can call it.
-    // The token is already scoped to this app and only works on the local network.
     String pbEndpoint = ""
     if (state.accessToken) {
         pbEndpoint = "/apps/api/${app.id}/setPB?access_token=${state.accessToken}"
     } else {
-        log.warn "buildReportHtml: no access token — PB cells will render as non-clickable. Re-save the app to generate a token."
+        log.warn "buildReportHtml: no access token — PB cells will render as non-clickable."
     }
 
     StringBuilder sb = new StringBuilder()
@@ -987,7 +963,6 @@ String buildReportHtml(List<Map> rows) {
     sb << "table.rmlogcheck td.rmlog-toggling{opacity:0.45;cursor:wait;pointer-events:none;}"
     sb << "</style>"
 
-    // Embed the PB endpoint URL as a JS variable using JsonOutput so the token is safely escaped.
     sb << "<script>var rmPbEndpoint = ${groovy.json.JsonOutput.toJson(pbEndpoint ?: null)};</script>"
 
     sb << '''<script>
@@ -1024,16 +999,12 @@ function sortRmLogTable(tableId, columnIndex) {
     rows.forEach(row => tbody.appendChild(row));
 }
 
-// Column hide toggle — operates only on column elements, not rows.
 function toggleRmCol(cls, btn) {
     var hiding = btn.className.indexOf('hidden-col') === -1;
     document.querySelectorAll('.' + cls).forEach(function(el) { el.style.display = hiding ? 'none' : ''; });
     btn.className = hiding ? 'rmcol-btn hidden-col' : 'rmcol-btn';
 }
 
-// Row filter helpers — evaluate ALL active row filters together so that a row
-// belonging to multiple hidden categories (e.g. disabled AND no-logging) stays
-// hidden when only one of those filters is toggled off.
 function isHiddenButton(id) {
     var b = document.getElementById(id);
     return b && b.className.indexOf('hidden-col') !== -1;
@@ -1052,9 +1023,6 @@ function applyRmRowFilters() {
     });
 }
 
-// Recalculate whether a row belongs to the "no logging ON" category after a
-// logging cell has been toggled in-place. Checks the current data-sort value of
-// each logging column cell (1 = ON, anything else = OFF).
 function updateRmLogOffClass(tr) {
     if (!tr) return;
     function colOn(cls) {
@@ -1117,7 +1085,6 @@ async function rmToggleLogging(td) {
                         if (newOn) fd.set('checkbox[' + name + ']', 'on');
                         fd.set('settings[' + name + ']', String(newOn));
                     } else {
-                        // enum-multiple: add or remove just this option from the current list
                         var arr = settings[name];
                         if (typeof arr === 'string') { try { arr = JSON.parse(arr); } catch(e) { arr = []; } }
                         if (!Array.isArray(arr)) arr = arr ? [String(arr)] : [];
@@ -1250,7 +1217,10 @@ async function rmTogglePB(td) {
         var url  = rmPbEndpoint + '&id=' + encodeURIComponent(ruleId) + '&value=' + String(newOn);
         var resp = await fetch(url);
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
-        var result = await resp.json();
+        var text = await resp.text();
+        if (!text || !text.trim()) throw new Error('Empty response from PB endpoint — check app logs');
+        var result;
+        try { result = JSON.parse(text); } catch(e) { throw new Error('Non-JSON response: ' + text.substring(0, 100)); }
         if (result.status !== 'success') throw new Error(result.message || JSON.stringify(result));
         td.dataset.on = String(newOn);
         td.setAttribute('data-sort', newOn ? '1' : '0');
@@ -1270,6 +1240,7 @@ async function rmTogglePB(td) {
     String btnRowDisabled = cfgHideRowDisabled ? "rmcol-btn hidden-col" : "rmcol-btn"
     String btnRowPaused   = cfgHideRowPaused   ? "rmcol-btn hidden-col" : "rmcol-btn"
     String btnRowLogOff   = cfgHideRowLogOff   ? "rmcol-btn hidden-col" : "rmcol-btn"
+    String btnColAppType  = cfgHideColAppType   ? "rmcol-btn hidden-col" : "rmcol-btn"
     String btnColDisabled = cfgHideColDisabled  ? "rmcol-btn hidden-col" : "rmcol-btn"
     String btnColPaused   = cfgHideColPaused    ? "rmcol-btn hidden-col" : "rmcol-btn"
     String btnColActions  = cfgHideColActions   ? "rmcol-btn hidden-col" : "rmcol-btn"
@@ -1280,11 +1251,11 @@ async function rmTogglePB(td) {
 
     sb << "<div class='rmcol-toggle-bar'>"
     sb << "<b>Hide rows:</b>&nbsp;"
-    // Row buttons use toggleRmRowFilter() so multiple active filters evaluate together
     sb << "<span id='rmtoggle-rmrow-disabled' class='${btnRowDisabled}' onclick=\"toggleRmRowFilter(this)\">Disabled rules</span>"
     sb << "<span id='rmtoggle-rmrow-paused'   class='${btnRowPaused}'   onclick=\"toggleRmRowFilter(this)\">Paused rules</span>"
     sb << "<span id='rmtoggle-rmrow-logoff'   class='${btnRowLogOff}'   onclick=\"toggleRmRowFilter(this)\">No logging ON</span>"
     sb << "&nbsp;&nbsp;<b>Hide columns:</b>&nbsp;"
+    sb << "<span id='rmtoggle-rmcol-apptype'  class='${btnColAppType}'  onclick=\"toggleRmCol('rmcol-apptype',this)\">App Type</span>"
     sb << "<span id='rmtoggle-rmcol-disabled' class='${btnColDisabled}' onclick=\"toggleRmCol('rmcol-disabled',this)\">Disabled</span>"
     sb << "<span id='rmtoggle-rmcol-paused'   class='${btnColPaused}'   onclick=\"toggleRmCol('rmcol-paused',this)\">Paused</span>"
     sb << "<span id='rmtoggle-rmcol-actions'  class='${btnColActions}'  onclick=\"toggleRmCol('rmcol-actions',this)\">Actions</span>"
@@ -1297,7 +1268,7 @@ async function rmTogglePB(td) {
     sb << "<table id='rmlog_table' class='rmlogcheck'><thead><tr>"
     sb << "<th onclick=\"sortRmLogTable('rmlog_table',0)\" class='center'>Rule ID</th>"
     sb << "<th onclick=\"sortRmLogTable('rmlog_table',1)\" class='sort-asc'>Rule</th>"
-    sb << "<th onclick=\"sortRmLogTable('rmlog_table',2)\" class='center'>App Type</th>"
+    sb << "<th onclick=\"sortRmLogTable('rmlog_table',2)\" class='center rmcol-apptype'>App Type</th>"
     sb << "<th onclick=\"sortRmLogTable('rmlog_table',3)\" class='center rmcol-disabled'>Disabled</th>"
     sb << "<th onclick=\"sortRmLogTable('rmlog_table',4)\" class='center rmcol-paused'>Paused</th>"
     sb << "<th onclick=\"sortRmLogTable('rmlog_table',5)\" class='center rmcol-actions'>Actions</th>"
@@ -1312,13 +1283,18 @@ async function rmTogglePB(td) {
         String nameSort    = htmlEncode(r.name?.toString()?.replaceAll(/<[^>]+>/, '') ?: "")
         String nameHtml    = renderNameHtml(r.name)
         String appType     = htmlEncode(r.appType ?: "RM")
+        boolean isBC       = (r.appType == "BC")
         String disabledFmt = formatYesNo(r.disabled as Boolean)
         String pausedFmt   = formatYesNo(r.paused   as Boolean)
         String actionsFmt  = formatOnOff(r.actionsOn  as Boolean)
         String eventsFmt   = formatOnOff(r.eventsOn   as Boolean)
         String triggersFmt = formatOnOff(r.triggersOn as Boolean)
 
-        // privateBool: null = unknown (field absent), true/false = known state
+        Boolean eventsApplicable = !isBC
+        Boolean anyOn  = (r.actionsOn as Boolean) ||
+                         (eventsApplicable && (r.eventsOn as Boolean)) ||
+                         (r.triggersOn as Boolean)
+
         Boolean pbVal  = r.privateBool == null ? null : (r.privateBool as Boolean)
         String  pbFmt  = (pbVal == null)  ? "<span style='color:#999;'>—</span>"
                        : pbVal            ? "<span style='color:darkorange;font-weight:bold;'>TRUE</span>"
@@ -1326,7 +1302,6 @@ async function rmTogglePB(td) {
         String pbSort  = (pbVal == true) ? "2" : (pbVal == false) ? "1" : "0"
 
         String lastRun = htmlEncode(r.lastRun ?: "")
-        Boolean anyOn  = (r.actionsOn as Boolean) || (r.eventsOn as Boolean) || (r.triggersOn as Boolean)
 
         List<String> trClasses = []
         if (r.disabled as Boolean) trClasses << "rmrow-disabled"
@@ -1340,14 +1315,11 @@ async function rmTogglePB(td) {
                   ? " style='display:none'" : "")
             : ""
 
-        // When all three share the same field name it's an enum-multiple — JS adds/removes the
-        // specific option rather than flipping the whole field.
         boolean sharedField      = r.actionsField && r.actionsField == r.eventsField && r.actionsField == r.triggersField
         String actionsFieldType  = sharedField ? "enum-multiple" : "bool"
         String eventsFieldType   = sharedField ? "enum-multiple" : "bool"
         String triggersFieldType = sharedField ? "enum-multiple" : "bool"
 
-        // Returns a clickable <td> when the field name is known; plain <td> otherwise
         Closure<String> clickableTd = { String colClass, String field, String fType, String enumOpt, Boolean isOn, String sortVal, String displayHtml ->
             if (!field) {
                 return "<td class='center ${colClass}' data-sort='${sortVal}'>${displayHtml}</td>"
@@ -1360,7 +1332,6 @@ async function rmTogglePB(td) {
                 " onclick='rmToggleLogging(this)'>${displayHtml}</td>"
         }
 
-        // PB cell: clickable only when endpoint is available AND state is known (not null)
         String pbTd
         if (pbEndpoint && pbVal != null) {
             pbTd = "<td class='center rmcol-pb rmlog-clickable' data-sort='${pbSort}'" +
@@ -1373,11 +1344,15 @@ async function rmTogglePB(td) {
         sb << "<tr${trAttr}>"
         sb << "<td class='center' data-sort='${id}'>${id}</td>"
         sb << "<td data-sort='${nameSort}'><a href='/installedapp/configure/${id}' target='_blank'>${nameHtml}</a></td>"
-        sb << "<td class='center' data-sort='${appType}'>${appType}</td>"
+        sb << "<td class='center rmcol-apptype' data-sort='${appType}'>${appType}</td>"
         sb << "<td class='center rmcol-disabled rmlog-clickable' data-sort='${r.disabled ? '1' : '0'}' data-rule-id='${id}' data-on='${r.disabled as Boolean}' onclick='rmToggleDisabled(this)'>${disabledFmt}</td>"
         sb << "<td class='center rmcol-paused rmlog-clickable'   data-sort='${r.paused   ? '1' : '0'}' data-rule-id='${id}' data-on='${r.paused   as Boolean}' onclick='rmTogglePaused(this)'>${pausedFmt}</td>"
         sb << clickableTd("rmcol-actions",  r.actionsField  as String, actionsFieldType,  "Actions",  r.actionsOn  as Boolean, r.actionsOn  ? "1" : "0", actionsFmt)
-        sb << clickableTd("rmcol-events",   r.eventsField   as String, eventsFieldType,   "Events",   r.eventsOn   as Boolean, r.eventsOn   ? "1" : "0", eventsFmt)
+        if (isBC) {
+            sb << "<td class='center rmcol-events' data-sort=''><span style='color:#999;'>—</span></td>"
+        } else {
+            sb << clickableTd("rmcol-events", r.eventsField as String, eventsFieldType, "Events", r.eventsOn as Boolean, r.eventsOn ? "1" : "0", eventsFmt)
+        }
         sb << clickableTd("rmcol-triggers", r.triggersField as String, triggersFieldType, "Triggers", r.triggersOn as Boolean, r.triggersOn ? "1" : "0", triggersFmt)
         sb << pbTd
         sb << "<td class='center rmcol-lastrun' data-sort='${lastRun}'>${lastRun}</td>"
@@ -1386,13 +1361,8 @@ async function rmTogglePB(td) {
 
     sb << "</tbody></table>"
 
-    // Emit a deferred init script to apply initial column-hide settings.
-    // Rows are hidden server-side (trAttr above). Columns can't be hidden server-side without
-    // adding inline styles to every cell, so we do it client-side here by setting display:none
-    // directly on each element that carries the column's CSS class.
-    // NOTE: do NOT simulate b.click() here — the toggle bar buttons are already rendered with
-    // the correct hidden-col class server-side, and clicking them would reverse the state.
     List<String> colClassesToHide = []
+    if (cfgHideColAppType)  colClassesToHide << "'rmcol-apptype'"
     if (cfgHideColDisabled) colClassesToHide << "'rmcol-disabled'"
     if (cfgHideColPaused)   colClassesToHide << "'rmcol-paused'"
     if (cfgHideColActions)  colClassesToHide << "'rmcol-actions'"
@@ -1438,9 +1408,6 @@ String htmlEncode(Object value) {
         .replace("'", "&#39;")
 }
 
-// Encode all HTML, then selectively restore safe color spans so names like
-// "<span style='color:red'>TEXT</span>" render as colored text rather than
-// raw markup. Color values are restricted to [a-zA-Z#0-9]+ to prevent injection.
 String renderNameHtml(Object value) {
     if (value == null) return ""
     String encoded = htmlEncode(value)
