@@ -1,6 +1,6 @@
 # Rule Logging and State Checker
 
-A Hubitat app that scans Rule Machine (RM) and Button Controller (BC) rules and reports their logging status, Disabled and Paused state, and Private Boolean value. It also scans supported Hubitat built-in apps (Notifications, Basic Rules, Simple Automation Rules, Basic Button Controller, Room Lighting, and Motion Lighting) and reports their Logging setting. Results appear in two separate tables, each with its own filter, sort, and hide controls.
+A Hubitat app that scans Rule Machine (RM) and Button Controller (BC) rules and reports their logging status, Disabled and Paused state, and Private Boolean value. It also scans supported Hubitat built-in apps (Notifications, Basic Rules, Simple Automation Rules, Basic Button Controller, Room Lighting, and Motion Lighting) and reports their Logging setting. Results appear in two separate collapsible tables, each with its own filter, sort, and hide controls.
 
 ## Installation
 
@@ -18,7 +18,7 @@ A Hubitat app that scans Rule Machine (RM) and Button Controller (BC) rules and 
 
 ![Rule Logging and State Checker screenshot](Screenshot%202026-05-06%20233738.png)
 
-Button Controller rules show "**—**" in the Events column because BC rules have no Events logging option.
+Button Controller rules show **—** in the Events column because BC rules have no Events logging option.
 
 Rule types that expose only one broad logging toggle (rather than separate Actions, Events, and Triggers controls) — such as Basic Button Controller — appear in the Built-in App Logging table rather than the RM/BC table.
 
@@ -31,6 +31,12 @@ Rule types that expose only one broad logging toggle (rather than separate Actio
 Click **Scan Rules** to start a scan. Both tables update automatically when the scan finishes — no manual refresh needed. Clicking **Done** and reopening the app re-renders both tables instantly from cached data, so display setting changes take effect without a rescan.
 
 > **Note:** If you install a new version, run a fresh scan once to regenerate the tables with any new columns or buttons.
+
+---
+
+### Table Visibility
+
+Each table can be shown or hidden using the **Show** toggle at the top of its respective **Custom Row and Column Settings** section — changes take effect immediately. Each table heading is also clickable to collapse or expand the table. Both settings persist across page opens.
 
 ---
 
@@ -53,7 +59,7 @@ Each table has a wildcard filter field. Use `*` to match any sequence of charact
 
 ### Column Buttons and Custom Settings
 
-Each table has its own set of hide-column buttons. Persistent defaults for both tables can be set in the **Custom Row and Column Settings** sections in the app; changes take effect after clicking Done — no rescan needed.
+Each table has its own set of hide-column buttons. Persistent defaults for both tables can be set in the **Custom Row and Column Settings** sections immediately below each table; changes take effect after clicking Done — no rescan needed.
 
 ---
 
@@ -73,6 +79,8 @@ Click any **Actions**, **Events**, **Triggers**, **Disabled**, or **Paused** cel
 
 Click any **Logging**, **Disabled**, or **Paused** cell to toggle that setting in-place.
 
+> **Note — Paused label on Automations page:** After toggling Paused in the Built-in App Logging table, the rule is correctly paused immediately. However, the **(Paused)** label on the Automations page requires a browser page refresh to appear (this is a Hubitat platform behavior, not an app limitation).
+
 ---
 
 ### Private Boolean (RM/BC Table)
@@ -91,7 +99,7 @@ Shows the date and time of the most recent trigger event for each rule, normalis
 
 ### Summary Counts
 
-Shown as part of each table's heading area. Counts are computed from the most recent scan. Toggling cells in-place updates cells immediately but does not refresh the summary — run **Scan Rules** again to update counts and cached row data.
+Shown as part of each table's section heading area. Counts are computed from the most recent scan. Toggling cells in-place updates cells immediately but does not refresh the summary — run **Scan Rules** again to update counts and cached row data.
 
 ---
 
@@ -105,8 +113,14 @@ This app uses Hubitat local/internal JSON endpoints. Those endpoints and Rule Ma
 
 | Version | Changes |
 |---------|---------|
+| 1.57 | buildSharedReportAssets() extracted so built-in table works when RM/BC list is empty; PB data-sort corrected to 2/1; empty-scan resets bi* counts; initialize() declared void; stale "Scan Rules" UI text updated |
+| 1.56 | Code review fixes: remove false-positive contains() from valueLooks*; fd.append(deviceList) + sentinel; null→'' for non-collection fields; dateFormat captured in extractLastRun; ruleId as Long for RMUtils; @CompileStatic on pure methods; detectRuleLogging log gated on debugEnable; def→void for lifecycle methods; named constants for magic numbers; redundant sort removed from buildBuiltinReportHtml; typed iteration; button label updated to "Scan All Rules" |
+| 1.55 | Table show/hide toggles moved into Custom Settings sections; spacing added between sections |
+| 1.54 | Both tables now collapsible sections with persistent show/hide state; Custom RM/BC settings moved below RM table |
+| 1.53 | No-op save after built-in app pause toggle forces label update so Automations page reflects (Paused) after a browser refresh |
+| 1.52 | Pause toggle for built-in app table rows now discovers the correct button name per app type |
 | 1.51 | Motion Lighting (Motion and Mode Lighting Apps umbrella) added to built-in app detection |
-| 1.50 | Recursive leaf-finding replaces hardcoded grandchildren pattern in both rule discovery functions; consistent approach for all app types |
+| 1.50 | Recursive leaf-finding replaces hardcoded grandchildren pattern in both rule discovery functions |
 | 1.49 | Simple Automation Rules, Basic Button Controller, and Motion Lighting added to Built-in App Logging table |
 | 1.48 | Self-enabling OAuth via hub internal API — no manual Apps Code step needed |
 | 1.47 | Built-in app Paused cells made clickable |
