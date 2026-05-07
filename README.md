@@ -1,6 +1,6 @@
 # Rule Logging and State Checker
 
-A Hubitat app that scans Rule Machine (RM) and Button Controller (BC) rules and reports their logging status, Disabled and Paused state, and Private Boolean value. It also scans supported Hubitat built-in apps (Notifications, Basic Rules, Room Lighting) and reports their Logging setting. Results appear in two separate tables, each with its own filter, sort, and hide controls.
+A Hubitat app that scans Rule Machine (RM) and Button Controller (BC) rules and reports their logging status, Disabled and Paused state, and Private Boolean value. It also scans supported Hubitat built-in apps (Notifications, Basic Rules, Simple Automation Rules, Basic Button Controller, Room Lighting, and Motion Lighting) and reports their Logging setting. Results appear in two separate tables, each with its own filter, sort, and hide controls.
 
 ## Installation
 
@@ -15,9 +15,12 @@ A Hubitat app that scans Rule Machine (RM) and Button Controller (BC) rules and 
 ---
 
 ## Overview
+
 ![Rule Logging and State Checker screenshot](Screenshot%202026-05-06%20233738.png)
 
-Basic Button Controller is intentionally not included — it exposes only one broad logging toggle rather than separate Actions, Events, and Triggers controls. Button Controller rules show **—** in the Events column because BC rules have no Events logging option.
+Button Controller rules show **—** in the Events column because BC rules have no Events logging option.
+
+Rule types that expose only one broad logging toggle (rather than separate Actions, Events, and Triggers controls) — such as Basic Button Controller — appear in the Built-in App Logging table rather than the RM/BC table.
 
 ---
 
@@ -102,18 +105,19 @@ This app uses Hubitat local/internal JSON endpoints. Those endpoints and Rule Ma
 
 | Version | Changes |
 |---------|---------|
-| 1.49 | Fixed a regression to once again make Paused cells in the 2nd table clickable. *
+| 1.51 | Motion Lighting (Motion and Mode Lighting Apps umbrella) added to built-in app detection |
+| 1.50 | Recursive leaf-finding replaces hardcoded grandchildren pattern in both rule discovery functions; consistent approach for all app types |
+| 1.49 | Simple Automation Rules, Basic Button Controller, and Motion Lighting added to Built-in App Logging table |
 | 1.48 | Self-enabling OAuth via hub internal API — no manual Apps Code step needed |
 | 1.47 | Built-in app Paused cells made clickable |
-| 1.46 | Two-table layout; RM/BC and Built-in App stats moved into table headings; Scan Rules button |
+| 1.46 | Two-table layout; RM/BC and Built-in App stats moved into table headings; Scan Rules button renamed |
 | 1.45 | Hide rows/columns and wildcard filter added to Built-in App Logging table |
-| 1.44 | Wildcard rule name filter added to RM/BC table; second table for built-in apps |
+| 1.44 | Wildcard rule name filter added to RM/BC table; second table for built-in apps added |
 | 1.43 | App Type column hideable |
 | 1.42 | OAuth token created automatically on page open |
 | 1.39 | Row filter overlap fix; Last Run date sort fix; PB sort three-way |
-| 1.38 | Robustness fixes: endpoint validation, relative URLs, PB null for unknown |
+| 1.38 | Robustness fixes: endpoint validation, relative URLs, PB null for unknown, self-consistent row filters |
 | 1.35 | Custom Row and Column Settings section with persistent hide preferences |
 | 1.34 | OAuth setup documentation |
 | 1.32 | Private Boolean column clickable via local OAuth endpoint |
 | 1.31 | Private Boolean column added |
-                
