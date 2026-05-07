@@ -20,7 +20,9 @@
  *    Rules from earlier RM versions will display PB state but the toggle may not work.
  *
  *
- *  v1.49 — Fixed a regression to once again make Paused cells in the 2nd table clickable. *
+ *  v1.50 — Second table now also covers Simple Automation Rules, Basic Button Controller,
+ *           and Motion Lighting (all confirmed to use a boolean "logging" field)
+ *  v1.49 — Fixed a regression to once again make Paused cells in the 2nd table clickable.
  *  v1.48 — Self-enabling OAuth: app now automatically enables OAuth on first install via
  *           /hub2/userAppTypes + /app/ajax/code + /app/edit/update, so the user never
  *           needs to visit Apps Code to enable OAuth manually
@@ -83,7 +85,7 @@ import groovy.transform.Field
 @Field static Map       scanPartialResults = null   // keyed by ruleId String; holds both RM/BC and builtin rows
 
 definition(
-    name:        "Rule Logging and State Checker 1.49",
+    name:        "Rule Logging and State Checker 1.51",
     namespace:   "johnland",
     author:      "John Land & AI",
     description: "Reports Rule Machine and Button Controller rules that have logging selected for Actions, Events, and/or Triggers, and shows/toggles Private Boolean state.",
@@ -319,6 +321,10 @@ def mainPage() {
     int pollInterval = currentScanId ? 5 : 0
     dynamicPage(name: "mainPage", title: "", install: true, uninstall: true, refreshInterval: pollInterval) {
 
+        section("") {
+            paragraph "<b style='font-size:1.1em;'>${app.name}</b>"
+        }
+
         section("NOTE: Scanning takes a while, be patient!") {
             input "btnScan", "button", title: "Scan Rules"
         }
@@ -393,14 +399,16 @@ def mainPage() {
                 This app scans Rule Machine (<b>RM</b>) and Button Controller (<b>BC</b>) rules and
                 reports their logging status (Actions, Events, Triggers), Disabled and Paused state,
                 and Private Boolean value. It also scans supported Hubitat built-in apps
-                (Notifications, Basic Rules, Room Lighting) and reports their Logging setting.
+                (Notifications, Basic Rules, Simple Automation Rules, Basic Button Controller,
+                Room Lighting, and Motion Lighting) and reports their Logging setting.
                 Results appear in two separate tables, each with its own filter, sort, and hide controls.
                 <br>
-                Basic Button Controller is intentionally not included — it exposes only one broad logging
-                toggle rather than separate Actions, Events, and Triggers controls.
                 Button Controller rules show <b>—</b> in the Events column because BC rules have no
                 Events logging option.
-                <br>
+                <br>                
+                Rule types that expose only one broad logging toggle (rather than separate 
+		            Actions, Events, and Triggers controls) appear in the Built-in App Logging table.
+                <br>		
                 <b>Scanning</b><br>
                 Click <b>Scan Rules</b> to start a scan. Both tables update automatically when the scan
                 finishes — no manual refresh needed. Clicking <b>Done</b> and reopening the app
@@ -436,7 +444,7 @@ def mainPage() {
                 if successful. Cells where the field name could not be determined are not clickable.
                 <br>
                 <b>Clickable cells — Built-in App Logging table</b><br>
-                Click any <b>Logging</b> or <b>Disabled</b> cell to toggle that setting in-place.
+                Click any <b>Logging</b>, <b>Disabled</b>, or <b>Paused</b> cell to toggle that setting in-place.
                 <br>
                 <b>Private Boolean (RM/BC table)</b><br>
                 Click any <b>Private Bool</b> cell to toggle a rule's Private Boolean between TRUE and
@@ -707,8 +715,8 @@ void finalizeScan() {
     }
 
     // Split into RM/BC rows and built-in app rows
-    List<Map> rmRows      = allRows.findAll { (it.appClass ?: "rm") != "builtin" }
-    List<Map> builtinRows = allRows.findAll { (it.appClass ?: "rm") == "builtin" }
+    List<Map> rmRows           = allRows.findAll { (it.appClass ?: "rm") != "builtin" }
+    List<Map> builtinRows      = allRows.findAll { (it.appClass ?: "rm") == "builtin" }
 
     Integer actionsOnCount     = rmRows.count { it.actionsOn   } as Integer
     Integer eventsOnCount      = rmRows.count { it.eventsOn    } as Integer
@@ -780,32 +788,7 @@ List<Map> getRuleMachineRuleApps() {
 
                 if (appType) {
                     parentApp?.children?.each { child ->
-                        // Button Controller adds an extra level: direct children are device-specific
-                        // groups; the actual button rules are their grandchildren. If a child has
-                        // its own children, process those instead.
-                        List grandchildren = (child?.children ?: []) as List
-                        (grandchildren.isEmpty() ? [child] : grandchildren).each { node ->
-                            def d = node?.data
-                            if (d?.id && d?.name) {
-                                String id = d.id.toString()
-                                if (!seenIds.contains(id)) {
-                                    String childType         = d?.type?.toString()    ?: ""
-                                    String childAppName      = d?.appName?.toString() ?: ""
-                                    String childDetectedType = getSupportedAutomationAppType(childType, childAppName)
-                                    String finalAppType      = (appType == "BC" || childDetectedType == "BC") ? "BC" : (childDetectedType ?: appType)
-
-                                    seenIds << id
-                                    String ruleName = d.name.toString()
-                                    rules << [
-                                        id      : id,
-                                        name    : ruleName,
-                                        appType : finalAppType,
-                                        disabled: asBooleanLoose(d.disabled),
-                                        paused  : ruleName.contains("(Paused)")
-                                    ]
-                                }
-                            }
-                        }
+                        collectRmLeafRules(child, appType, rules, seenIds, 0)
                     }
                 }
             }
@@ -816,6 +799,38 @@ List<Map> getRuleMachineRuleApps() {
     }
 
     return rules.sort { it.name?.toLowerCase() ?: "" }
+}
+
+// Recursively collect leaf nodes from the RM/BC app tree.
+// Mirrors collectBuiltinLeafRules() but preserves the BC type-detection logic
+// needed to correctly label Button Controller rules within an RM parent.
+private void collectRmLeafRules(Object node, String parentAppType, List<Map> rules, Set<String> seenIds, int depth) {
+    if (depth > 6) return
+    List children = (node?.children ?: []) as List
+    if (children.isEmpty()) {
+        def d = node?.data
+        if (d?.id && d?.name) {
+            String id = d.id.toString()
+            if (!seenIds.contains(id)) {
+                String childType         = d?.type?.toString()    ?: ""
+                String childAppName      = d?.appName?.toString() ?: ""
+                String childDetectedType = getSupportedAutomationAppType(childType, childAppName)
+                String finalAppType      = (parentAppType == "BC" || childDetectedType == "BC") ? "BC" : (childDetectedType ?: parentAppType)
+
+                seenIds << id
+                String ruleName = d.name.toString()
+                rules << [
+                    id       : id,
+                    name     : ruleName,
+                    appType  : finalAppType,
+                    disabled : asBooleanLoose(d.disabled),
+                    paused   : ruleName.contains("(Paused)")
+                ]
+            }
+        }
+    } else {
+        children.each { child -> collectRmLeafRules(child, parentAppType, rules, seenIds, depth + 1) }
+    }
 }
 
 String getSupportedAutomationAppType(String type, String name, String label = "") {
@@ -849,9 +864,10 @@ String getSupportedAutomationAppType(String type, String name, String label = ""
 // ============================================================
 // Built-in app discovery
 // ============================================================
-// Detects top-level Hubitat built-in apps (Notifications, Basic Rules, Room Lighting)
-// that support a boolean "logging" setting. Unlike RM/BC rules these are parent apps,
-// not children of Rule Machine, so they appear at the top level in /hub2/appsList.
+// Detects top-level Hubitat built-in apps (Notifications, Basic Rules, Simple Automation Rules,
+// Basic Button Controller, Room Lighting, Motion Lighting) that support a boolean "logging"
+// setting. Unlike RM/BC rules these are parent apps, not children of Rule Machine, so they
+// appear at the top level in /hub2/appsList.
 
 List<Map> getBuiltinAppInstances() {
     List<Map> apps = []
@@ -867,24 +883,14 @@ List<Map> getBuiltinAppInstances() {
                 String label = pd?.label?.toString() ?: ""
                 String appType = getBuiltinAppType(type, name, label)
 
-                // Found a supported built-in parent — collect its children (the individual rules)
+                // Found a supported built-in parent — recursively collect leaf nodes.
+                // Leaf nodes (no children) are the actual rules; intermediate nodes
+                // (with children) are containers or groups to descend through.
+                // This handles variable nesting depth across different app types —
+                // e.g. Basic Button Controller has more tiers than Notifications.
                 if (appType) {
                     parentApp?.children?.each { child ->
-                        def d = child?.data
-                        if (!d?.id || !d?.name) return
-                        String id = d.id.toString()
-                        if (!seenIds.contains(id)) {
-                            seenIds << id
-                            String childName = d.name.toString()
-                            apps << [
-                                id      : id,
-                                name    : childName,
-                                appType : appType,
-                                appClass: "builtin",
-                                disabled: asBooleanLoose(d.disabled),
-                                paused  : childName.contains("(Paused)")
-                            ]
-                        }
+                        collectBuiltinLeafRules(child, appType, apps, seenIds, 0)
                     }
                 }
             }
@@ -896,16 +902,53 @@ List<Map> getBuiltinAppInstances() {
     return apps.sort { it.name?.toLowerCase() ?: "" }
 }
 
+// Recursively descend the app tree, collecting only leaf nodes (nodes with no children)
+// as the actual rules. Intermediate container/group nodes are skipped.
+// depth guard prevents runaway recursion on unexpectedly deep structures.
+private void collectBuiltinLeafRules(Object node, String appType, List<Map> apps, Set<String> seenIds, int depth) {
+    if (depth > 6) return
+    List children = (node?.children ?: []) as List
+    if (children.isEmpty()) {
+        // Leaf — this is an actual rule
+        def d = node?.data
+        if (d?.id && d?.name) {
+            String id = d.id.toString()
+            if (!seenIds.contains(id)) {
+                seenIds << id
+                String ruleName = d.name.toString()
+                apps << [
+                    id       : id,
+                    name     : ruleName,
+                    appType  : appType,
+                    appClass : "builtin",
+                    disabled : asBooleanLoose(d.disabled),
+                    paused   : ruleName.contains("(Paused)")
+                ]
+            }
+        }
+    } else {
+        // Intermediate container — recurse into children
+        children.each { child -> collectBuiltinLeafRules(child, appType, apps, seenIds, depth + 1) }
+    }
+}
+
 // Returns a display-friendly app type name for supported built-in apps, or null if not recognised.
 String getBuiltinAppType(String type, String name, String label = "") {
     String combined = [type, name, label].findAll { it }.join(" ").toLowerCase()
     if (!combined) return null
     // Avoid false positives — check more specific strings first
-    if (combined.contains("room lighting") || combined.contains("roomlighting")) return "Room Lighting"
-    if ((combined.contains("basic rule")   || combined.contains("basicroomrule")) &&
-        !combined.contains("button")) return "Basic Rule"
-    if (combined.contains("notification")  && !combined.contains("button") &&
-        !combined.contains("rule")) return "Notifications"
+    if (combined.contains("room lighting")            || combined.contains("roomlighting"))          return "Room Lighting"
+    // "Motion and Mode Lighting Apps" is the umbrella container in the hub's app list;
+    // "motion lighting" catches any directly-named Motion Lighting instances.
+    // Both map to the same appType since we only want Motion Lighting children.
+    if (combined.contains("motion and mode lighting") || combined.contains("motionandmodelighting") ||
+        combined.contains("motion lighting")          || combined.contains("motionlighting"))        return "Motion Lighting"
+    if (combined.contains("simple automation")        || combined.contains("simpleautomation"))      return "Simple Automation Rules"
+    if (combined.contains("basic button controller")  || combined.contains("basicbuttoncontroller")) return "Basic Button Controller"
+    if ((combined.contains("basic rule")              || combined.contains("basicroomrule")) &&
+        !combined.contains("button"))                                                                return "Basic Rule"
+    if (combined.contains("notification")             && !combined.contains("button")        &&
+        !combined.contains("rule"))                                                                  return "Notifications"
     return null
 }
 
@@ -982,8 +1025,8 @@ Map detectAllLogging(List<Map> candidates) {
 }
 
 Map detectSpecificLogging(List<Map> candidates, String canonicalName, List<String> needles) {
-    Set<String> exactKeys   = ["log${canonicalName}", "${canonicalName}log", "${canonicalName}logging", "logging${canonicalName}"] as Set
-    Set<String> generalKeys = ["logging", "logs", "log", "logoptions", "loggingoptions", "logsettings", "logsetting"] as Set
+    Set<String> exactKeys    = ["log${canonicalName}", "${canonicalName}log", "${canonicalName}logging", "logging${canonicalName}"] as Set
+    Set<String> generalKeys  = ["logging", "logs", "log", "logoptions", "loggingoptions", "logsettings", "logsetting"] as Set
     String disabledFieldName = null
 
     for (Map c : candidates) {
@@ -1093,7 +1136,8 @@ Boolean extractPrivateBool(Map status) {
 
 
 // Reads the "logging" boolean setting from built-in apps (Notifications, Basic Rules,
-// Room Lighting). These apps use a simple boolean field named "logging" in their settings.
+// Simple Automation Rules, Basic Button Controller, Room Lighting, Motion Lighting).
+// These apps use a simple boolean field named "logging" in their settings.
 // Returns true/false when the field is found, null when absent or status unreadable.
 Boolean extractBuiltinLogging(Map status) {
     for (def source : [status?.appSettings, status?.settings]) {
@@ -1575,7 +1619,7 @@ async function rmTogglePB(td) {
     String btnRowDisabled = cfgHideRowDisabled  ? "rmcol-btn hidden-col" : "rmcol-btn"
     String btnRowPaused   = cfgHideRowPaused    ? "rmcol-btn hidden-col" : "rmcol-btn"
     String btnRowLogOff   = cfgHideRowLogOff    ? "rmcol-btn hidden-col" : "rmcol-btn"
-    String btnColRuleId   = cfgHideColRuleId   ? "rmcol-btn hidden-col" : "rmcol-btn"
+    String btnColRuleId   = cfgHideColRuleId    ? "rmcol-btn hidden-col" : "rmcol-btn"
     String btnColAppType  = cfgHideColAppType   ? "rmcol-btn hidden-col" : "rmcol-btn"
     String btnColDisabled = cfgHideColDisabled  ? "rmcol-btn hidden-col" : "rmcol-btn"
     String btnColPaused   = cfgHideColPaused    ? "rmcol-btn hidden-col" : "rmcol-btn"
@@ -1611,8 +1655,8 @@ async function rmTogglePB(td) {
     sb << "<span id='rmtoggle-rmrow-paused'   class='${btnRowPaused}'   onclick=\"toggleRmRowFilter(this)\">Paused rules</span>"
     sb << "<span id='rmtoggle-rmrow-logoff'   class='${btnRowLogOff}'   onclick=\"toggleRmRowFilter(this)\">No logging ON</span>"
     sb << "&nbsp;&nbsp;<b>Hide columns:</b>&nbsp;"
-    sb << "<span id='rmtoggle-rmcol-ruleid'    class='${btnColRuleId}'    onclick=\"toggleRmCol('rmcol-ruleid',this)\">Rule ID</span>"
-    sb << "<span id='rmtoggle-rmcol-apptype'   class='${btnColAppType}'   onclick=\"toggleRmCol('rmcol-apptype',this)\">App Type</span>"
+    sb << "<span id='rmtoggle-rmcol-ruleid'   class='${btnColRuleId}'   onclick=\"toggleRmCol('rmcol-ruleid',this)\">Rule ID</span>"
+    sb << "<span id='rmtoggle-rmcol-apptype'  class='${btnColAppType}'  onclick=\"toggleRmCol('rmcol-apptype',this)\">App Type</span>"
     sb << "<span id='rmtoggle-rmcol-disabled' class='${btnColDisabled}' onclick=\"toggleRmCol('rmcol-disabled',this)\">Disabled</span>"
     sb << "<span id='rmtoggle-rmcol-paused'   class='${btnColPaused}'   onclick=\"toggleRmCol('rmcol-paused',this)\">Paused</span>"
     sb << "<span id='rmtoggle-rmcol-actions'  class='${btnColActions}'  onclick=\"toggleRmCol('rmcol-actions',this)\">Actions</span>"
@@ -1822,7 +1866,7 @@ function toggleBiRowFilter(btn) {
 
     sb << "<h3 style='margin-top:1.5em;'><b>Built-in App Logging</b> " +
          "<span style='font-weight:normal;font-size:0.8em;color:#555;'>" +
-         "for Hubitat built-in apps (Notifications, Basic Rules, Room Lighting) that support a Logging setting" +
+         "for Hubitat built-in apps (Notifications, Basic Rules, Simple Automation Rules, Basic Button Controller, Room Lighting, Motion Lighting) that support a Logging setting" +
          "</span></h3>"
     sb << "<div style='margin:0;padding:0;line-height:1.5;font-size:1em;'>" +
          "<b>Rules scanned:</b> ${biTotal}; " +
