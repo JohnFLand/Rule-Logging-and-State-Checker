@@ -93,7 +93,7 @@ definition(
     oauth:          true,
     iconUrl:   '',
     iconX2Url: '',
-    importUrl: "https://github.com/JohnFLand/Rule-Logging-and-State-Checker/blob/ea50109b6fe9aa500d26f85ba33c77ea7f05d65c/Rule%20Logging%20and%20State%20Checker"
+    importUrl: "https://raw.githubusercontent.com/JohnFLand/Rule-Logging-and-State-Checker/refs/heads/main/Rule%20Logging%20and%20State%20Checker.groovy"
 )
 
 preferences {
