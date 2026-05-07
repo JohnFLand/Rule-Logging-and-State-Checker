@@ -20,7 +20,7 @@
  *    Rules from earlier RM versions will display PB state but the toggle may not work.
  *
  *
- *  v1.49 — Fixed a regression to onee again make Paused cells in the 2nd table clickable. *
+ *  v1.49 — Fixed a regression to once again make Paused cells in the 2nd table clickable. *
  *  v1.48 — Self-enabling OAuth: app now automatically enables OAuth on first install via
  *           /hub2/userAppTypes + /app/ajax/code + /app/edit/update, so the user never
  *           needs to visit Apps Code to enable OAuth manually
