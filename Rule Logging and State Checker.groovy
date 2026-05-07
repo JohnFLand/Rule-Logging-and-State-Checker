@@ -147,7 +147,7 @@ void updated() {
     boolean scanWasActive = (currentScanId != null)
     initialize()
     if (scanWasActive) {
-        state.reportHtml = "<p><i>Scan was cancelled because app settings were saved. Click <b>Scan All Rules</b> to run again.</i></p>"
+        state.scanStatus  = "<i>Scan was cancelled because app settings were saved. Click <b>Scan All Rules</b> to run again.</i>"
     } else {
         reRenderReportIfCached()
     }
@@ -351,6 +351,9 @@ def mainPage() {
                 paragraph "<b>Last scan:</b> ${state.lastScan} (Scan time: ${state.scanDuration ?: '00:00'})"
             } else {
                 paragraph "No scan has been run yet."
+            }
+            if (state.scanStatus) {
+                paragraph state.scanStatus
             }
             if (state.lastError) {
                 paragraph "<span style='color:red'><b>Last error:</b> ${htmlEncode(state.lastError.toString())}</span>"
@@ -560,7 +563,8 @@ def appButtonHandler(String btn) {
 
 void findLoggingRules() {
     state.lastError         = null
-    state.reportHtml        = "<p><i>Scan in progress…</i></p>"
+    state.scanStatus        = "<i>Scan in progress…</i>"
+    state.reportHtml        = null
     state.builtinReportHtml = null
     state.scanRowsJson      = null   // clear cache so updated() won't re-render stale data mid-scan
     state.builtinRowsJson   = null
@@ -606,7 +610,7 @@ void findLoggingRules() {
          paused   : r.paused             as Boolean]
     }
 
-    state.reportHtml = "<p><i>Scan started: ${scanStartTime} — scanning ${queue.size()} apps…</i></p>"
+    state.scanStatus = "<i>Scan started: ${scanStartTime} — scanning ${queue.size()} apps…</i>"
 
     // Assign all transient scan state to @Field statics — zero DB writes during the scan
     scanRuleQueue      = queue
@@ -813,6 +817,7 @@ void finalizeScan() {
 
     state.reportHtml          = buildReportHtml(rmRows)
     state.builtinReportHtml   = buildBuiltinReportHtml(builtinRows)
+    state.scanStatus          = null
 
     // Release @Field memory and mark scan complete — cleared AFTER reportHtml is written
     // so the page keeps auto-refreshing until the report is ready.
