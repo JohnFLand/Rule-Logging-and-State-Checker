@@ -15,7 +15,8 @@ A Hubitat app that scans Rule Machine (RM) and Button Controller (BC) rules and 
 ---
 
 ## Overview
-![Rule Logging and State Checker screenshot]Screenshot 2026-05-06 233738.png
+![Rule Logging and State Checker screenshot](Screenshot%202026-05-06%20233738.png)
+
 Basic Button Controller is intentionally not included — it exposes only one broad logging toggle rather than separate Actions, Events, and Triggers controls. Button Controller rules show **—** in the Events column because BC rules have no Events logging option.
 
 ---
