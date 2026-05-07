@@ -18,7 +18,7 @@ A Hubitat app that scans Rule Machine (RM) and Button Controller (BC) rules and 
 
 ![Rule Logging and State Checker screenshot](Screenshot%202026-05-07%20112527.png)
 
-Button Controller rules show **—** in the Events column because BC rules have no Events logging option.
+Button Controller rules show "**—**" in the Events column because BC rules have no Events logging option.
 
 Rule types that expose only one broad logging toggle (rather than separate Actions, Events, and Triggers controls) — such as Basic Button Controller — appear in the Built-in App Logging table rather than the RM/BC table.
 
