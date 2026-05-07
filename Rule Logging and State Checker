@@ -19,6 +19,8 @@
  *  - Private Boolean toggling uses RMUtils.sendAction() with RM version "5.0".
  *    Rules from earlier RM versions will display PB state but the toggle may not work.
  *
+ *
+ *  v1.49 — Fixed a regression to onee again make Paused cells in the 2nd table clickable. *
  *  v1.48 — Self-enabling OAuth: app now automatically enables OAuth on first install via
  *           /hub2/userAppTypes + /app/ajax/code + /app/edit/update, so the user never
  *           needs to visit Apps Code to enable OAuth manually
@@ -81,7 +83,7 @@ import groovy.transform.Field
 @Field static Map       scanPartialResults = null   // keyed by ruleId String; holds both RM/BC and builtin rows
 
 definition(
-    name:        "Rule Logging and State Checker 1.48",
+    name:        "Rule Logging and State Checker 1.49",
     namespace:   "johnland",
     author:      "John Land & AI",
     description: "Reports Rule Machine and Button Controller rules that have logging selected for Actions, Events, and/or Triggers, and shows/toggles Private Boolean state.",
@@ -1517,8 +1519,13 @@ async function rmTogglePaused(td) {
         td.innerHTML = newOn ? "<span style='color:red;font-weight:bold;'>Yes</span>"
                              : "<span style='color:green;font-weight:bold;'>No</span>";
         var tr = td.closest('tr');
-        if (newOn) tr.classList.add('rmrow-paused'); else tr.classList.remove('rmrow-paused');
-        applyRmRowFilters();
+        if (tr && tr.closest('#builtin_table')) {
+            if (newOn) tr.classList.add('birow-paused'); else tr.classList.remove('birow-paused');
+            applyBiRowFilters();
+        } else {
+            if (newOn) tr.classList.add('rmrow-paused'); else tr.classList.remove('rmrow-paused');
+            applyRmRowFilters();
+        }
     } catch(e) {
         alert('Toggle paused failed: ' + e.message);
     } finally {
@@ -1587,7 +1594,7 @@ async function rmTogglePB(td) {
     int rmTriggersOn = rows.count { it.triggersOn } as int
     int rmPbTrue     = rows.count { it.privateBool == true } as int
 
-    sb << "<h3 style='margin-top:0.5em;'><b>Rule Machine and Button Controller Logging and State</b></h3>"
+    sb << "<h3 style='margin-top:0.5em;'><b>Rule Machine and Button Controller Logging & State</b></h3>"
     sb << "<div style='margin:0;padding:0;line-height:1.5;font-size:1em;'>" +
          "<b>Rules scanned:</b> ${rmScanned}; " +
          "<b>Any logging ON:</b> ${rmAnyLogOn}; " +
@@ -1904,7 +1911,7 @@ function toggleBiRowFilter(btn) {
         sb << "<td data-sort='${nameSort}'><a href='/installedapp/configure/${id}' target='_blank'>${nameHtml}</a></td>"
         sb << "<td class='center bicol-apptype' data-sort='${appType}'>${appType}</td>"
         sb << "<td class='center bicol-disabled rmlog-clickable' data-sort='${r.disabled ? '1' : '0'}' data-rule-id='${id}' data-on='${r.disabled as Boolean}' onclick='rmToggleDisabled(this)'>${disabledFmt}</td>"
-        sb << "<td class='center bicol-paused' data-sort='${r.paused ? '1' : '0'}'>${pausedFmt}</td>"
+        sb << "<td class='center bicol-paused rmlog-clickable' data-sort='${r.paused ? '1' : '0'}' data-rule-id='${id}' data-on='${r.paused as Boolean}' onclick='rmTogglePaused(this)'>${pausedFmt}</td>"
         sb << logTd
         sb << "<td class='center bicol-lastrun' data-sort='${lastRun}' style='white-space:nowrap;'>${lastRun}</td>"
         sb << "</tr>"
