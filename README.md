@@ -1,5 +1,3 @@
-# Rule-Logging-and-State-Checker
-Scans Rule Machine and Button Controller child apps and reports which rules appear to have  Actions, Events, and/or Triggers logging enabled, plus Disabled, Paused, and Private Boolean states.
 # Rule Logging and State Checker
 
 A Hubitat app that scans Rule Machine (RM) and Button Controller (BC) rules and reports their logging status, Disabled and Paused state, and Private Boolean value. It also scans supported Hubitat built-in apps (Notifications, Basic Rules, Room Lighting) and reports their Logging setting. Results appear in two separate tables, each with its own filter, sort, and hide controls.
