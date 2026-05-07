@@ -4,8 +4,8 @@
  *  Scans Rule Machine and Button Controller child apps and reports which rules appear to have
  *  Actions, Events, and/or Triggers logging enabled, plus Disabled, Paused, and Private Boolean states.
  *
- *  Designed initially by John Land, built by Claude AI with an assist by ChatGPT, then
- *  revised to incorporate the excellent work of hubitrep (the clickable cells are genius).
+ *  Designed initially by John Land, built by Claude AI with an assist by ChatGPT, then revised
+ *  to incorporate the excellent work of and feedback from hubitrep (the clickable cells are genius).
  *
  *  Notes:
  *  - Uses Hubitat local/internal JSON endpoints:
@@ -19,7 +19,25 @@
  *  - Private Boolean toggling uses RMUtils.sendAction() with RM version "5.0".
  *    Rules from earlier RM versions will display PB state but the toggle may not work.
  *
- *
+ *  v1.57 — buildSharedReportAssets() extracted so built-in table works when RM/BC list is
+ *           empty; PB data-sort corrected to 2/1; empty-scan resets bi* counts;
+ *           initialize() declared void; stale "Scan Rules" UI text updated
+ *  v1.56 — Code review fixes: remove false-positive contains() from valueLooks*;
+ *           fd.append(deviceList) + sentinel; null→'' for non-collection fields;
+ *           dateFormat captured in extractLastRun; ruleId as Long for RMUtils;
+ *           @CompileStatic on pure methods; detectRuleLogging log gated on debugEnable;
+ *           def→void for lifecycle methods; named constants for magic numbers;
+ *           redundant sort removed from buildBuiltinReportHtml; typed iteration;
+ *           button label updated to "Scan All Rules"
+ *  v1.55 — Table show/hide toggles moved into their respective Custom Settings sections;
+ *           spacing added between RM/BC and Built-in sections; Notes and README updated
+ *  v1.54 — Both tables now collapsible sections with persistent show/hide state;
+ *           Custom RM/BC settings section moved below RM table; Notes updated with
+ *           Pause label-refresh and table collapse documentation
+ *  v1.53 — No-op save after built-in app pause toggle forces label update server-side
+ *           so Automations page shows (Paused) without needing to open/close the rule
+ *  v1.52 — Fixed click function of "Pause" in 2nd table, made tables collapsible
+ *  v1.51 - Cosmetic changes, updated internal and external documentation
  *  v1.50 — Second table now also covers Simple Automation Rules, Basic Button Controller,
  *           and Motion Lighting (all confirmed to use a boolean "logging" field)
  *  v1.49 — Fixed a regression to once again make Paused cells in the 2nd table clickable.
@@ -72,9 +90,12 @@
 
 import hubitat.helper.RMUtils
 import groovy.transform.Field
+import groovy.transform.CompileStatic
 
-@Field static final String RM_BASE_URL  = "http://127.0.0.1:8080"
-@Field static final String RM_VERSION   = "5.0"
+@Field static final String  RM_BASE_URL        = "http://127.0.0.1:8080"
+@Field static final String  RM_VERSION          = "5.0"
+@Field static final int     SCAN_TIMEOUT_SECS   = 360   // max seconds before scan is force-finalized
+@Field static final int     LOGS_OFF_DELAY_SECS = 1800  // seconds before debug logging auto-disables
 
 // Transient scan state lives in @Field static to avoid database writes during a scan.
 // If the app class is reloaded during a scan (e.g. on code save or hub restart),
@@ -85,10 +106,10 @@ import groovy.transform.Field
 @Field static Map       scanPartialResults = null   // keyed by ruleId String; holds both RM/BC and builtin rows
 
 definition(
-    name:        "Rule Logging and State Checker 1.51",
+    name:        "Rule Logging and State Checker 1.57",
     namespace:   "johnland",
     author:      "John Land & AI",
-    description: "Reports Rule Machine and Button Controller rules that have logging selected for Actions, Events, and/or Triggers, and shows/toggles Private Boolean state.",
+    description: "Reports logging status and Disabled, Paused, and Private Boolean states for Hubitat rules.",
     category:    "Utility",
     singleInstance: true,
     installOnOpen:  true,
@@ -116,23 +137,23 @@ mappings {
 // Lifecycle
 // ============================================================
 
-def installed() {
+void installed() {
     checkOAuth()           // auto-enable OAuth and create token on first install
     initialize()
     runIn(10, "findLoggingRules")
 }
 
-def updated() {
+void updated() {
     boolean scanWasActive = (currentScanId != null)
     initialize()
     if (scanWasActive) {
-        state.reportHtml = "<p><i>Scan was cancelled because app settings were saved. Click <b>Scan RM / BC Rules</b> to run again.</i></p>"
+        state.reportHtml = "<p><i>Scan was cancelled because app settings were saved. Click <b>Scan All Rules</b> to run again.</i></p>"
     } else {
         reRenderReportIfCached()
     }
 }
 
-def initialize() {
+void initialize() {
     if (currentScanId != null) {
         log.warn "initialize: aborting in-progress scan (scanId: ${currentScanId}) — re-scan when ready"
     }
@@ -149,7 +170,7 @@ def initialize() {
     atomicState.scanStartMs   = null
 
     if (debugEnable) {
-        runIn(1800, "logsOff")
+        runIn(LOGS_OFF_DELAY_SECS, "logsOff")
     }
 }
 
@@ -269,7 +290,6 @@ boolean checkOAuth() {
     return false
 }
 
-
 // ── Private Boolean OAuth endpoint ───────────────────────────────────────────
 
 // Returns the render result so Hubitat's OAuth dispatcher receives a response body.
@@ -300,7 +320,7 @@ def handleSetPBEndpoint() {
     String action = (pbValue == "true") ? "setRuleBooleanTrue" : "setRuleBooleanFalse"
 
     try {
-        RMUtils.sendAction([ruleId], action, app.label, RM_VERSION)
+        RMUtils.sendAction([ruleId as Long], action, app.label, RM_VERSION)
         if (debugEnable) log.debug "setPB: rule ${ruleId} → ${action}"
         return renderJson([status: "success"])
     } catch (Exception e) {
@@ -325,8 +345,16 @@ def mainPage() {
             paragraph "<b style='font-size:1.1em;'>${app.name}</b>"
         }
 
-        section("NOTE: Scanning takes a while, be patient!") {
-            input "btnScan", "button", title: "Scan Rules"
+        section("NOTE: Scanning may take a while, be patient!") {
+            input "btnScan", "button", title: "Scan All Rules"
+            if (state.lastScan) {
+                paragraph "<b>Last scan:</b> ${state.lastScan} (Scan time: ${state.scanDuration ?: '00:00'})"
+            } else {
+                paragraph "No scan has been run yet."
+            }
+            if (state.lastError) {
+                paragraph "<span style='color:red'><b>Last error:</b> ${htmlEncode(state.lastError.toString())}</span>"
+            }
         }
 
         // ── Private Boolean toggle status ─────────────────────────────────────
@@ -341,30 +369,29 @@ def mainPage() {
             }
         }
 
-        section("") {
-            if (state.lastScan) {
-                String summaryHtml = "<div style='margin:0;padding:0;line-height:1.0;'>" +
-                    "<b>Last scan:</b> ${state.lastScan} (Scan time: ${state.scanDuration ?: '00:00'})" +
-                    "<br><br></div>"
-                paragraph summaryHtml
-            } else {
-                paragraph "No scan has been run yet."
+        boolean expandRm = (settings.tableRmExpanded != null) ? (settings.tableRmExpanded as boolean) : true
+        section("Rule Machine and Button Controller Logging and State", hideable: true, hidden: !expandRm) {
+            if (state.scannedCount != null) {
+                paragraph "<div style='margin:0;padding:0;line-height:1.5;font-size:1em;'>" +
+                          "<b>Rules scanned:</b> ${state.scannedCount ?: 0}; " +
+                          "<b>Any logging ON:</b> ${state.anyLoggingOnCount ?: 0}; " +
+                          "<b>Actions:</b> ${state.actionsOnCount ?: 0}; " +
+                          "<b>Events:</b> ${state.eventsOnCount ?: 0}; " +
+                          "<b>Triggers:</b> ${state.triggersOnCount ?: 0}; " +
+                          "<b>Private Bool TRUE:</b> ${state.privateBoolOnCount ?: 0}" +
+                          "<br><br></div>"
             }
-
-            if (state.lastError) {
-                paragraph "<span style='color:red'><b>Last error:</b> ${htmlEncode(state.lastError.toString())}</span>"
-            }
-
-            paragraph(state.reportHtml ?: "Click <b>Scan Rules</b> to begin.")
-            if (state.builtinReportHtml) paragraph(state.builtinReportHtml)
+            paragraph(state.reportHtml ?: "Click <b>Scan All Rules</b> to begin.")
         }
 
         section("Custom Row and Column Settings for Rule Machine/Button Controller Rules", hideable: true, hidden: true) {
-            paragraph "<b>Hide Rows</b> — choose which row categories start hidden when the table loads."
+            paragraph ""
+            input "tableRmExpanded", "bool", title: "Show Rule Machine/BC table",    defaultValue: true, submitOnChange: true
+            paragraph "<br><b>Hide Rows</b> — choose which row categories start hidden when the table loads."
             input "hideRowDisabled", "bool", title: "Hide 'Disabled rules' rows",    defaultValue: false
             input "hideRowPaused",   "bool", title: "Hide 'Paused rules' rows",      defaultValue: false
             input "hideRowLogOff",   "bool", title: "Hide 'No logging ON' rows",     defaultValue: true
-            paragraph "<b>Hide Columns</b> — choose which columns start hidden when the table loads."
+            paragraph "<br><b>Hide Columns</b> — choose which columns start hidden when the table loads."
             input "hideColRuleId",   "bool", title: "Hide 'Rule ID' column",         defaultValue: false
             input "hideColAppType",  "bool", title: "Hide 'App Type' column",        defaultValue: false
             input "hideColDisabled", "bool", title: "Hide 'Disabled' column",        defaultValue: false
@@ -378,20 +405,43 @@ def mainPage() {
                       "However, if you have just installed a new version of the app, run a fresh scan once to regenerate the table with any new columns or buttons.</small>"
         }
 
+        section("") { paragraph "" }   // spacer between RM/BC and Built-in sections
+
+        boolean expandBi = (settings.tableBiExpanded != null) ? (settings.tableBiExpanded as boolean) : true
+        section("Built-in App Logging", hideable: true, hidden: !expandBi) {
+            paragraph "<small style='color:#555;'>for Hubitat built-in apps (Notifications, Basic Rules, Simple Automation Rules, Basic Button Controller, Room Lighting, Motion Lighting) that support a Logging setting</small>"
+            if (state.biScannedCount != null) {
+                String biStats = "<div style='margin:0;padding:0;line-height:1.5;font-size:1em;'>" +
+                    "<b>Rules scanned:</b> ${state.biScannedCount}; " +
+                    "<b>Logging ON:</b> <span style='color:red;font-weight:bold;'>${state.biLogOnCount ?: 0}</span>; " +
+                    "<b>Logging OFF:</b> <span style='color:green;'>${state.biLogOffCount ?: 0}</span>"
+                if ((state.biLogUnknownCount ?: 0) > 0) {
+                    biStats += "; <b>Unknown:</b> <span style='color:#999;'>${state.biLogUnknownCount}</span>"
+                }
+                biStats += "<br><br></div>"
+                paragraph biStats
+            }
+            if (state.builtinReportHtml) paragraph(state.builtinReportHtml)
+        }
+
         section("Custom Row and Column Settings for Built-in App Logging", hideable: true, hidden: true) {
-            paragraph "<b>Hide Rows</b> — choose which row categories start hidden when the Built-in App Logging table loads."
-            input "hideBiRowDisabled", "bool", title: "Hide 'Disabled rules' rows",  defaultValue: false
-            input "hideBiRowPaused",   "bool", title: "Hide 'Paused rules' rows",    defaultValue: false
-            input "hideBiRowLogOff",   "bool", title: "Hide 'Logging OFF' rows",     defaultValue: false
-            paragraph "<b>Hide Columns</b> — choose which columns start hidden when the Built-in App Logging table loads."
-            input "hideBiColRuleId",   "bool", title: "Hide 'Rule ID' column",       defaultValue: false
-            input "hideBiColAppType",  "bool", title: "Hide 'App Type' column",      defaultValue: false
-            input "hideBiColDisabled", "bool", title: "Hide 'Disabled' column",      defaultValue: false
-            input "hideBiColPaused",   "bool", title: "Hide 'Paused' column",        defaultValue: false
-            input "hideBiColLogging",  "bool", title: "Hide 'Logging' column",       defaultValue: false
-            input "hideBiColLastRun",  "bool", title: "Hide 'Last Run' column",      defaultValue: false
+            paragraph ""          
+            input "tableBiExpanded", "bool", title: "Show Built-in App Logging table", defaultValue: true, submitOnChange: true
+            paragraph "<br><b>Hide Rows</b> — choose which row categories start hidden when the Built-in App Logging table loads."
+            input "hideBiRowDisabled", "bool", title: "Hide 'Disabled rules' rows",    defaultValue: false
+            input "hideBiRowPaused",   "bool", title: "Hide 'Paused rules' rows",      defaultValue: false
+            input "hideBiRowLogOff",   "bool", title: "Hide 'Logging OFF' rows",       defaultValue: false
+            paragraph "<br><b>Hide Columns</b> — choose which columns start hidden when the Built-in App Logging table loads."
+            input "hideBiColRuleId",   "bool", title: "Hide 'Rule ID' column",         defaultValue: false
+            input "hideBiColAppType",  "bool", title: "Hide 'App Type' column",        defaultValue: false
+            input "hideBiColDisabled", "bool", title: "Hide 'Disabled' column",        defaultValue: false
+            input "hideBiColPaused",   "bool", title: "Hide 'Paused' column",          defaultValue: false
+            input "hideBiColLogging",  "bool", title: "Hide 'Logging' column",         defaultValue: false
+            input "hideBiColLastRun",  "bool", title: "Hide 'Last Run' column",        defaultValue: false
             paragraph "<small>Setting changes take effect after clicking Done — no rescan needed.</small>"
         }
+
+        section("") { paragraph "" }   // spacer between Built-in and Notes sections
 
         section("Notes", hideable: true, hidden: true) {
             paragraph """
@@ -410,7 +460,7 @@ def mainPage() {
 		            Actions, Events, and Triggers controls) appear in the Built-in App Logging table.
                 <br>		
                 <b>Scanning</b><br>
-                Click <b>Scan Rules</b> to start a scan. Both tables update automatically when the scan
+                Click <b>Scan All Rules</b> to start a scan. Both tables update automatically when the scan
                 finishes — no manual refresh needed. Clicking <b>Done</b> and reopening the app
                 re-renders both tables instantly from cached data, so display setting changes take effect
                 without a rescan. If you install a new version, run a fresh scan once to regenerate
@@ -429,10 +479,15 @@ def mainPage() {
                 <code>*Motion*</code>. Filtering is case-insensitive and combines with the row filter
                 buttons — a row must pass both to be visible.
                 <br>
+                <b>Table Visibility</b><br>
+                Each table can be shown or hidden using the <b>Show</b> toggle at the top of its
+                respective <b>Custom Row and Column Settings</b> section — changes take effect
+                immediately. Each table heading is also clickable to collapse or expand the table.
+                <br>
                 <b>Column buttons and Custom Settings sections</b><br>
                 Each table has its own set of hide-column buttons. Persistent defaults for both tables
-                can be set in the <b>Custom Row and Column Settings</b> sections; changes take effect
-                after clicking Done — no rescan needed.
+                can be set in the <b>Custom Row and Column Settings</b> sections immediately below
+                each table; changes take effect after clicking Done — no rescan needed.
                 <br>
                 <b>Sorting</b><br>
                 Click any column header to sort by that column; clicking the same header again reverses
@@ -445,6 +500,9 @@ def mainPage() {
                 <br>
                 <b>Clickable cells — Built-in App Logging table</b><br>
                 Click any <b>Logging</b>, <b>Disabled</b>, or <b>Paused</b> cell to toggle that setting in-place.
+                After toggling <b>Paused</b> in the Built-in App Logging table, the rule is
+                correctly paused immediately, but the <b>(Paused)</b> label on the Automations
+                page requires a browser page refresh to appear.
                 <br>
                 <b>Private Boolean (RM/BC table)</b><br>
                 Click any <b>Private Bool</b> cell to toggle a rule's Private Boolean between TRUE and
@@ -465,7 +523,7 @@ def mainPage() {
                 <b>Summary counts</b><br>
                 Shown as part of each table's heading area. Counts are computed from the most recent
                 scan. Toggling cells in-place updates cells immediately but does not refresh the
-                summary — run Scan Rules again to update counts and cached row data.
+                summary — run Scan All Rules again to update counts and cached row data.
                 <br>
                 <b>WARNING</b><br>
                 This app uses Hubitat local/internal JSON endpoints. Those endpoints and Rule Machine /
@@ -510,7 +568,7 @@ void findLoggingRules() {
     // Cancel any prior scheduled timeout before setting a new one so a stale timer
     // from a previous scan can never fire against the current one.
     unschedule("finalizeScanTimeout")
-    runIn(360, "finalizeScanTimeout")
+    runIn(SCAN_TIMEOUT_SECS, "finalizeScanTimeout")
 
     List<Map> ruleApps    = getRuleMachineRuleApps()
     List<Map> builtinApps = getBuiltinAppInstances()
@@ -526,6 +584,11 @@ void findLoggingRules() {
         state.privateBoolOnCount = 0
         state.lastScan           = new Date().format("yyyy-MM-dd HH:mm:ss", location.timeZone)
         state.scanDuration       = "00:00"
+        state.biScannedCount     = 0
+        state.biLogOnCount       = 0
+        state.biLogOffCount      = 0
+        state.biLogUnknownCount  = 0
+        state.builtinReportHtml  = ""
         state.reportHtml         = "<p>No Rule Machine, Button Controller, or supported built-in apps found.</p>"
         return
     }
@@ -535,12 +598,12 @@ void findLoggingRules() {
     String scanStartTime = new Date().format("yyyy-MM-dd HH:mm:ss", location.timeZone)
 
     List<Map> queue = combined.collect { Map r ->
-        [id       : r.id                    as String,
-         name     : r.name                  as String,
-         appType  : (r.appType ?: "RM")     as String,
-         appClass : (r.appClass ?: "rm")    as String,
-         disabled : r.disabled              as Boolean,
-         paused   : r.paused                as Boolean]
+        [id       : r.id                 as String,
+         name     : r.name               as String,
+         appType  : (r.appType ?: "RM")  as String,
+         appClass : (r.appClass ?: "rm") as String,
+         disabled : r.disabled           as Boolean,
+         paused   : r.paused             as Boolean]
     }
 
     state.reportHtml = "<p><i>Scan started: ${scanStartTime} — scanning ${queue.size()} apps…</i></p>"
@@ -742,6 +805,11 @@ void finalizeScan() {
         state.scanRowsJson    = null
         state.builtinRowsJson = null
     }
+
+    state.biScannedCount      = builtinRows.size()
+    state.biLogOnCount        = builtinRows.count { it.logging == true  } as Integer
+    state.biLogOffCount       = builtinRows.count { it.logging == false } as Integer
+    state.biLogUnknownCount   = builtinRows.count { it.logging == null  } as Integer
 
     state.reportHtml          = buildReportHtml(rmRows)
     state.builtinReportHtml   = buildBuiltinReportHtml(builtinRows)
@@ -994,14 +1062,14 @@ Map detectRuleLogging(Map status) {
         allLoggingField : allResult.fieldName      as String
     ]
 
-    // When no field names were resolved, log candidates to aid diagnosis of unrecognised field names
-    if (!result.actionsField && !result.eventsField && !result.triggersField && !result.allLoggingField) {
+    // When no field names were resolved, log candidates (only when debug logging is enabled)
+    if (debugEnable && !result.actionsField && !result.eventsField && !result.triggersField && !result.allLoggingField) {
         List<String> logCandidates = candidates
             .findAll { String k = it.name?.toString()?.toLowerCase() ?: ""; k.contains("log") || k.contains("debug") }
             .collect { "${it.source}/${it.name}=${it.value}" }
         if (logCandidates) {
             log.debug "detectRuleLogging: no logging fields found — log-related candidates: ${logCandidates}"
-        } else if (debugEnable) {
+        } else {
             log.debug "detectRuleLogging: no logging fields found — all candidates: ${candidates.collect { "${it.source}/${it.name}=${it.value}" }}"
         }
     }
@@ -1092,26 +1160,25 @@ void collectCandidatesFromObject(String source, Object obj, List<Map> candidates
     }
 }
 
+@CompileStatic
 Boolean valueLooksEnabled(Object value) {
     if (value == null) return false
-    if (value instanceof Boolean) return value
+    if (value instanceof Boolean) return (Boolean) value
     if (value instanceof Collection) return !(value as Collection).isEmpty()
     String v = value.toString().trim().toLowerCase()
-    if (v in ["true", "on", "yes", "enabled", "enable", "1"]) return true
-    if (v.contains("true") || v.contains("enabled") || v.contains("on")) return true
-    return false
+    return v in ["true", "on", "yes", "enabled", "enable", "1"]
 }
 
+@CompileStatic
 Boolean valueLooksDisabled(Object value) {
     if (value == null) return true
-    if (value instanceof Boolean) return !value
+    if (value instanceof Boolean) return !(Boolean) value
     if (value instanceof Collection) return (value as Collection).isEmpty()
     String v = value.toString().trim().toLowerCase()
-    if (v in ["false", "off", "no", "disabled", "disable", "0", "null", ""]) return true
-    if (v.contains("false") || v.contains("disabled") || v.contains("off")) return true
-    return false
+    return v in ["false", "off", "no", "disabled", "disable", "0", "null", ""]
 }
 
+@CompileStatic
 Boolean asBooleanLoose(Object value) {
     if (value == null) return false
     if (value instanceof Boolean) return value
@@ -1126,7 +1193,7 @@ Boolean asBooleanLoose(Object value) {
 // or null when the field is absent (status unreadable or rule returned no appState).
 // Callers should treat null as unknown, not as false.
 Boolean extractPrivateBool(Map status) {
-    for (def item : (status?.appState ?: [])) {
+    for (Map item : (status?.appState ?: [])) {
         if (item?.name?.toString() == "private") {
             return asBooleanLoose(item?.value)
         }
@@ -1134,19 +1201,19 @@ Boolean extractPrivateBool(Map status) {
     return null
 }
 
-
 // Reads the "logging" boolean setting from built-in apps (Notifications, Basic Rules,
 // Simple Automation Rules, Basic Button Controller, Room Lighting, Motion Lighting).
 // These apps use a simple boolean field named "logging" in their settings.
 // Returns true/false when the field is found, null when absent or status unreadable.
 Boolean extractBuiltinLogging(Map status) {
-    for (def source : [status?.appSettings, status?.settings]) {
+    // Iterate appSettings first then settings — two heterogeneous sources, same field shape
+    for (Object source : [status?.appSettings, status?.settings]) {
         if (source instanceof Map) {
             if (source.containsKey("logging")) {
                 return asBooleanLoose(source.logging)
             }
         } else if (source instanceof Collection) {
-            for (def item : source) {
+            for (Map item : source) {
                 if (item?.name?.toString() == "logging") {
                     return asBooleanLoose(item?.value)
                 }
@@ -1164,12 +1231,14 @@ String extractLastRun(Map status) {
     String lastEvtDate = ""
     String lastEvtTime = ""
     String timeFormat  = ""
+    String dateFormat  = ""
 
     status?.appState?.each { item ->
         String n = item?.name?.toString() ?: ""
         if (n == "lastEvtDate") lastEvtDate = item?.value?.toString() ?: ""
         if (n == "lastEvtTime") lastEvtTime = item?.value?.toString() ?: ""
         if (n == "timeFormat")  timeFormat  = item?.value?.toString() ?: ""
+        if (n == "dateFormat")  dateFormat  = item?.value?.toString() ?: ""
     }
 
     if (!lastEvtDate) return ""
@@ -1206,7 +1275,8 @@ String extractLastRun(Map status) {
     }
 
     if (!lastEvtDate.matches(/\d{4}-\d{2}-\d{2}/)) {
-        List<String> dateFmts = ["dd-MMM-yyyy", "MM/dd/yyyy", "dd/MM/yyyy", "MMM dd, yyyy"]
+        // Put hub's own dateFormat first so locale-specific formats are tried before fallbacks
+        List<String> dateFmts = (dateFormat ? [dateFormat] : []) + ["dd-MMM-yyyy", "MM/dd/yyyy", "dd/MM/yyyy", "MMM dd, yyyy"]
         String normalizedDate = null
         for (String fmt : dateFmts) {
             try {
@@ -1237,38 +1307,12 @@ String extractLastRun(Map status) {
 }
 
 // ============================================================
-// HTML report
+// Shared report assets (CSS + JS)
 // ============================================================
-
-String buildReportHtml(List<Map> rows) {
-    if (!rows) {
-        return "<p>No rules found. Click <b>Scan RM / BC Rules</b> to begin.</p>"
-    }
-
-    // Read custom visibility settings — defaults match original behaviour (only No logging ON hidden)
-    boolean cfgHideRowDisabled = settings.hideRowDisabled ?: false
-    boolean cfgHideRowPaused   = settings.hideRowPaused   ?: false
-    boolean cfgHideRowLogOff   = (settings.hideRowLogOff  != null) ? (settings.hideRowLogOff  as boolean) : true
-    boolean cfgHideColRuleId   = settings.hideColRuleId   ?: false
-    boolean cfgHideColAppType  = settings.hideColAppType  ?: false
-    boolean cfgHideColDisabled = settings.hideColDisabled ?: false
-    boolean cfgHideColPaused   = settings.hideColPaused   ?: false
-    boolean cfgHideColActions  = settings.hideColActions  ?: false
-    boolean cfgHideColEvents   = settings.hideColEvents   ?: false
-    boolean cfgHideColTriggers = settings.hideColTriggers ?: false
-    boolean cfgHideColPB       = settings.hideColPB       ?: false
-    boolean cfgHideColLastRun  = settings.hideColLastRun  ?: false
-
-    // Build the local OAuth endpoint URL for PB toggling (relative — no hub IP).
-    // The access token is embedded in the rendered HTML so the JS click handler can call it.
-    // The token is already scoped to this app and only works on the local network.
-    String pbEndpoint = ""
-    if (state.accessToken) {
-        pbEndpoint = "/apps/api/${app.id}/setPB?access_token=${state.accessToken}"
-    } else {
-        log.warn "buildReportHtml: no access token — PB cells will render as non-clickable. Re-save the app to generate a token."
-    }
-
+// Always called from buildReportHtml() — even when rows is empty — so the
+// built-in table has sortRmLogTable, wildcardToRegex, rmToggle*, etc. available
+// regardless of whether there are any RM/BC rules to display.
+String buildSharedReportAssets(String pbEndpoint) {
     StringBuilder sb = new StringBuilder()
     sb << "<style>"
     sb << "table.rmlogcheck{border-collapse:collapse;width:100%;}"
@@ -1461,10 +1505,11 @@ async function rmToggleLogging(td) {
                         var ids = (cur && typeof cur === 'object' && !Array.isArray(cur))
                             ? Object.keys(cur).join(',')
                             : (cur != null ? String(cur) : '');
-                        fd.set('settings[' + name + ']', ids);
-                        fd.set('deviceList', name);
+                        fd.append('settings[' + name + ']', ids);
+                        fd.append('deviceList', name);
+                        fd.append('', '');   // Hubitat sentinel to delimit device-list entries
                     } else {
-                        var sv = cur == null ? '[]' : (typeof cur === 'object' ? JSON.stringify(cur) : String(cur));
+                        var sv = cur == null ? '' : (typeof cur === 'object' ? JSON.stringify(cur) : String(cur));
                         fd.set('settings[' + name + ']', sv);
                     }
                 }
@@ -1544,12 +1589,38 @@ async function rmTogglePaused(td) {
     td.classList.remove('rmlog-clickable');
     td.classList.add('rmlog-toggling');
     var ruleId = td.dataset.ruleId, newOn = td.dataset.on !== 'true';
+    var tr = td.closest('tr');
+    var isBuiltin = tr && tr.closest('#builtin_table');
     try {
+        var btnName = 'pausRule';   // default for RM/BC rules
+        var cfg = null;             // will hold configure/json response for builtin rows
+
+        if (isBuiltin) {
+            // Built-in apps use a button name that varies by app type — discover it
+            // from configure/json. We also keep cfg for the no-op save below.
+            var cfgResp = await fetch('/installedapp/configure/json/' + ruleId);
+            if (!cfgResp.ok) throw new Error('configure/json HTTP ' + cfgResp.status);
+            cfg = await cfgResp.json();
+            var foundBtn = null;
+            (cfg.configPage?.sections || []).forEach(function(sec) {
+                (sec.input || []).forEach(function(inp) {
+                    if (!foundBtn && inp.type === 'button') {
+                        var t = (inp.title || '').toLowerCase();
+                        if (t.indexOf('pause') >= 0 || t.indexOf('resume') >= 0) {
+                            foundBtn = inp.name;
+                        }
+                    }
+                });
+            });
+            if (!foundBtn) throw new Error('Could not find pause button in configure/json for app ' + ruleId);
+            btnName = foundBtn;
+        }
+
         var fd = new URLSearchParams();
         fd.set('id', ruleId);
-        fd.set('name', 'pausRule');
-        fd.set('settings[pausRule]', 'clicked');
-        fd.set('pausRule.type', 'button');
+        fd.set('name', btnName);
+        fd.set('settings[' + btnName + ']', 'clicked');
+        fd.set(btnName + '.type', 'button');
         var resp = await fetch('/installedapp/btn', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
@@ -1558,14 +1629,81 @@ async function rmTogglePaused(td) {
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         var result = await resp.json();
         if (result.status !== 'success') throw new Error(result.message || JSON.stringify(result));
+
         td.dataset.on = String(newOn);
         td.setAttribute('data-sort', newOn ? '1' : '0');
         td.innerHTML = newOn ? "<span style='color:red;font-weight:bold;'>Yes</span>"
                              : "<span style='color:green;font-weight:bold;'>No</span>";
-        var tr = td.closest('tr');
-        if (tr && tr.closest('#builtin_table')) {
+
+        if (isBuiltin) {
             if (newOn) tr.classList.add('birow-paused'); else tr.classList.remove('birow-paused');
             applyBiRowFilters();
+
+            // No-op save: re-POST existing settings unchanged so Hubitat updates
+            // the app label server-side (appending/removing "(Paused)"), making the
+            // change visible on the Automations page without opening the rule.
+            // Uses cfg already fetched above — no extra round-trip.
+            // Wrapped in its own try-catch: if this fails the pause already succeeded.
+            if (cfg) {
+                try {
+                    var appInfo    = cfg.app        || {};
+                    var configPage = cfg.configPage || {};
+                    var settings   = cfg.settings   || {};
+                    var pageName   = configPage.name || 'mainPage';
+                    var sections   = configPage.sections || [];
+                    var nfd = new URLSearchParams();
+                    nfd.set('_action_update', 'Done');
+                    nfd.set('formAction', 'update');
+                    nfd.set('id', ruleId);
+                    nfd.set('version', String(appInfo.version || '1'));
+                    nfd.set('appTypeId', '');
+                    nfd.set('appTypeName', '');
+                    nfd.set('currentPage', pageName);
+                    nfd.set('pageBreadcrumbs', '[]');
+                    nfd.set('_cancellable', 'false');
+                    nfd.set('referrer', window.location.origin + '/installedapp/list');
+                    nfd.set('url', window.location.origin + '/installedapp/configure/' + ruleId + '/' + pageName);
+                    sections.forEach(function(sec) {
+                        (sec.body || []).forEach(function(elem) {
+                            if (elem.element === 'label') {
+                                var ln = elem.name || 'label';
+                                nfd.set(ln + '.type', 'text');
+                                nfd.set(ln, appInfo.label || '');
+                            }
+                        });
+                    });
+                    sections.forEach(function(sec) {
+                        (sec.input || []).forEach(function(inp) {
+                            var name = inp.name, type = inp.type || '', multiple = !!inp.multiple;
+                            if (type === 'button') return;   // skip button inputs
+                            nfd.set(name + '.type', type);
+                            nfd.set(name + '.multiple', String(multiple));
+                            var cur = settings[name];
+                            if (type === 'bool') {
+                                var bv = cur === true || cur === 'true';
+                                if (bv) nfd.set('checkbox[' + name + ']', 'on');
+                                nfd.set('settings[' + name + ']', String(bv));
+                            } else if (type.startsWith('capability.')) {
+                                var ids = (cur && typeof cur === 'object' && !Array.isArray(cur))
+                                    ? Object.keys(cur).join(',') : (cur != null ? String(cur) : '');
+                                nfd.set('settings[' + name + ']', ids);
+                                nfd.set('deviceList', name);
+                            } else {
+                                var sv = cur == null ? '' : (typeof cur === 'object' ? JSON.stringify(cur) : String(cur));
+                                nfd.set('settings[' + name + ']', sv);
+                            }
+                        });
+                    });
+                    await fetch('/installedapp/update/json', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: nfd.toString()
+                    });
+                    // Result not checked — label update is cosmetic; pause already succeeded.
+                } catch(noopErr) {
+                    console.warn('No-op save for label update failed (non-critical):', noopErr.message);
+                }
+            }
         } else {
             if (newOn) tr.classList.add('rmrow-paused'); else tr.classList.remove('rmrow-paused');
             applyRmRowFilters();
@@ -1602,7 +1740,7 @@ async function rmTogglePB(td) {
         try { result = JSON.parse(text); } catch(e) { throw new Error('Non-JSON response: ' + text.substring(0, 100)); }
         if (result.status !== 'success') throw new Error(result.message || JSON.stringify(result));
         td.dataset.on = String(newOn);
-        td.setAttribute('data-sort', newOn ? '1' : '0');
+        td.setAttribute('data-sort', newOn ? '2' : '1');   // three-way: unknown=0, false=1, true=2
         td.innerHTML = newOn ? "<span style='color:darkorange;font-weight:bold;'>TRUE</span>"
                              : "<span style='color:#aaa;'>false</span>";
     } catch(e) {
@@ -1614,6 +1752,34 @@ async function rmTogglePB(td) {
     }
 }
 </script>'''
+    return sb.toString()
+}
+
+// ============================================================
+// RM/BC table HTML
+// ============================================================
+
+String buildReportHtml(List<Map> rows) {
+    // Compute pbEndpoint before the early-return check so buildSharedReportAssets
+    // always receives it even when rows is empty.
+    // Build the local OAuth endpoint URL for PB toggling (relative — no hub IP).
+    // The access token is embedded in the rendered HTML so the JS click handler can call it.
+    // The token is already scoped to this app and only works on the local network.
+    String pbEndpoint = ""
+    if (state.accessToken) {
+        pbEndpoint = "/apps/api/${app.id}/setPB?access_token=${state.accessToken}"
+    } else {
+        log.warn "buildReportHtml: no access token — PB cells will render as non-clickable. Re-save the app to generate a token."
+    }
+
+    StringBuilder sb = new StringBuilder()
+    sb << buildSharedReportAssets(pbEndpoint)
+
+    if (!rows) {
+        sb << "<p>No rules found. Click <b>Scan All Rules</b> to begin.</p>"
+        return sb.toString()
+    }
+
 
     // Derive initial button classes from settings
     String btnRowDisabled = cfgHideRowDisabled  ? "rmcol-btn hidden-col" : "rmcol-btn"
@@ -1628,25 +1794,6 @@ async function rmTogglePB(td) {
     String btnColTriggers = cfgHideColTriggers  ? "rmcol-btn hidden-col" : "rmcol-btn"
     String btnColPB       = cfgHideColPB        ? "rmcol-btn hidden-col" : "rmcol-btn"
     String btnColLastRun  = cfgHideColLastRun   ? "rmcol-btn hidden-col" : "rmcol-btn"
-
-    // Compute RM/BC stats from rows so the heading is always current (works for both
-    // fresh scans and re-renders from cached data triggered by settings changes).
-    int rmScanned    = rows.size()
-    int rmAnyLogOn   = rows.count { (it.actionsOn || it.eventsOn || it.triggersOn) } as int
-    int rmActionsOn  = rows.count { it.actionsOn  } as int
-    int rmEventsOn   = rows.count { it.eventsOn   } as int
-    int rmTriggersOn = rows.count { it.triggersOn } as int
-    int rmPbTrue     = rows.count { it.privateBool == true } as int
-
-    sb << "<h3 style='margin-top:0.5em;'><b>Rule Machine and Button Controller Logging & State</b></h3>"
-    sb << "<div style='margin:0;padding:0;line-height:1.5;font-size:1em;'>" +
-         "<b>Rules scanned:</b> ${rmScanned}; " +
-         "<b>Any logging ON:</b> ${rmAnyLogOn}; " +
-         "<b>Actions:</b> ${rmActionsOn}; " +
-         "<b>Events:</b> ${rmEventsOn}; " +
-         "<b>Triggers:</b> ${rmTriggersOn}; " +
-         "<b>Private Bool TRUE:</b> ${rmPbTrue}" +
-         "<br><br></div>"
 
     sb << "<div class='rmcol-toggle-bar'>"
     sb << "<b>Hide rows:</b>&nbsp;"
@@ -1795,7 +1942,6 @@ async function rmTogglePB(td) {
     return sb.toString()
 }
 
-
 // ============================================================
 // Built-in app report table
 // ============================================================
@@ -1859,22 +2005,6 @@ function toggleBiRowFilter(btn) {
 }
 </script>'''
 
-    int biTotal      = rows.size()
-    int biLogOn      = rows.count { it.logging == true  } as int
-    int biLogOff     = rows.count { it.logging == false } as int
-    int biLogUnknown = rows.count { it.logging == null  } as int
-
-    sb << "<h3 style='margin-top:1.5em;'><b>Built-in App Logging</b> " +
-         "<span style='font-weight:normal;font-size:0.8em;color:#555;'>" +
-         "for Hubitat built-in apps (Notifications, Basic Rules, Simple Automation Rules, Basic Button Controller, Room Lighting, Motion Lighting) that support a Logging setting" +
-         "</span></h3>"
-    sb << "<div style='margin:0;padding:0;line-height:1.5;font-size:1em;'>" +
-         "<b>Rules scanned:</b> ${biTotal}; " +
-         "<b>Logging ON:</b> <span style='color:red;font-weight:bold;'>${biLogOn}</span>; " +
-         "<b>Logging OFF:</b> <span style='color:green;'>${biLogOff}</span>" +
-         (biLogUnknown > 0 ? "; <b>Unknown:</b> <span style='color:#999;'>${biLogUnknown}</span>" : "") +
-         "<br><br></div>"
-
     // Derive initial button classes from settings
     String btnBiRowDisabled = cfgHideBiRowDisabled ? "rmcol-btn hidden-col" : "rmcol-btn"
     String btnBiRowPaused   = cfgHideBiRowPaused   ? "rmcol-btn hidden-col" : "rmcol-btn"
@@ -1912,7 +2042,7 @@ function toggleBiRowFilter(btn) {
     sb << "<th onclick=\"sortRmLogTable('builtin_table',6)\" class='center bicol-lastrun'>Last Run</th>"
     sb << "</tr></thead><tbody>"
 
-    rows.sort { it.name?.toString()?.toLowerCase() ?: "" }.each { Map r ->
+    rows.each { Map r ->  // already sorted by getBuiltinAppInstances()
         String id          = htmlEncode(r.id)
         String appType     = htmlEncode(r.appType ?: "")
         String nameHtml    = renderNameHtml(r.name)
@@ -1982,14 +2112,17 @@ function toggleBiRowFilter(btn) {
 // Formatting helpers
 // ============================================================
 
+@CompileStatic
 String formatOnOff(Boolean value) {
     return value ? "<span style='color:red;font-weight:bold;'>ON</span>" : "<span style='color:green;font-weight:bold;'>OFF</span>"
 }
 
+@CompileStatic
 String formatYesNo(Boolean value) {
     return value ? "<span style='color:red;font-weight:bold;'>Yes</span>" : "<span style='color:green;font-weight:bold;'>No</span>"
 }
 
+@CompileStatic
 String formatScanDuration(Long elapsedMs) {
     Long safeMs = elapsedMs ?: 0L
     if (safeMs < 0L) safeMs = 0L
@@ -1999,6 +2132,7 @@ String formatScanDuration(Long elapsedMs) {
     return String.format("%02d:%02d", minutes, seconds)
 }
 
+@CompileStatic
 String htmlEncode(Object value) {
     if (value == null) return ""
     return value.toString()
@@ -2012,6 +2146,7 @@ String htmlEncode(Object value) {
 // Encode all HTML, then selectively restore safe color spans so names like
 // "<span style='color:red'>TEXT</span>" render as colored text rather than
 // raw markup. Color values are restricted to [a-zA-Z#0-9]+ to prevent injection.
+@CompileStatic
 String renderNameHtml(Object value) {
     if (value == null) return ""
     String encoded = htmlEncode(value)
