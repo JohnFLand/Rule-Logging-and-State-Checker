@@ -1787,6 +1787,20 @@ String buildReportHtml(List<Map> rows) {
 
 
     // Derive initial button classes from settings
+    // Read custom visibility settings — defaults match original behaviour (only No logging ON hidden)
+    boolean cfgHideRowDisabled = settings.hideRowDisabled ?: false
+    boolean cfgHideRowPaused   = settings.hideRowPaused   ?: false
+    boolean cfgHideRowLogOff   = (settings.hideRowLogOff  != null) ? (settings.hideRowLogOff  as boolean) : true
+    boolean cfgHideColRuleId   = settings.hideColRuleId   ?: false
+    boolean cfgHideColAppType  = settings.hideColAppType  ?: false
+    boolean cfgHideColDisabled = settings.hideColDisabled ?: false
+    boolean cfgHideColPaused   = settings.hideColPaused   ?: false
+    boolean cfgHideColActions  = settings.hideColActions  ?: false
+    boolean cfgHideColEvents   = settings.hideColEvents   ?: false
+    boolean cfgHideColTriggers = settings.hideColTriggers ?: false
+    boolean cfgHideColPB       = settings.hideColPB       ?: false
+    boolean cfgHideColLastRun  = settings.hideColLastRun  ?: false
+
     String btnRowDisabled = cfgHideRowDisabled  ? "rmcol-btn hidden-col" : "rmcol-btn"
     String btnRowPaused   = cfgHideRowPaused    ? "rmcol-btn hidden-col" : "rmcol-btn"
     String btnRowLogOff   = cfgHideRowLogOff    ? "rmcol-btn hidden-col" : "rmcol-btn"
