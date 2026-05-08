@@ -16,7 +16,7 @@ Rule types that expose only one broad logging toggle (rather than separate Event
    https://raw.githubusercontent.com/JohnFLand/Rule-Logging-and-State-Checker/refs/heads/main/Rule%20Logging%20and%20State%20Checker.groovy
    ```
 3. Click **Save**
-4. Go to **Apps → Add User App** and select **Rule Logging and State Checker** 
+4. Go to **Apps → Add User App** and select **Rule Logging and State Checker**
 
 ---
 
