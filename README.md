@@ -22,7 +22,7 @@ Rule types that expose only one broad logging toggle (rather than separate Event
 
 ## Screenshot
 
-![Rule Logging and State Checker screenshot](Screenshot%202026-05-07%20231828.png)
+![Rule Logging and State Checker screenshot](Screenshot%202026-05-07%231828.png)
 
 ---
 
