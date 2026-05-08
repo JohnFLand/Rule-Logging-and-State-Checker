@@ -1,6 +1,10 @@
 # Rule Logging and State Checker
 
-A Hubitat app that scans Rule Machine (RM) and Button Controller (BC) rules and reports their logging status, Disabled and Paused state, and Private Boolean value. It also scans supported Hubitat built-in apps (Notifications, Basic Rules, Simple Automation Rules, Basic Button Controller, Room Lighting, and Motion Lighting) and reports their Logging setting. Results appear in two separate collapsible tables, each with its own filter, sort, and hide controls.
+A Hubitat app that scans Rule Machine (RM) and Button Controller (BC) rules and reports their
+logging status, Disabled and Paused state, and Private Boolean value. It also scans supported
+Hubitat built-in apps (Notifications, Basic Rules, Simple Automation Rules, Basic Button
+Controller, Room Lighting, Motion Lighting) and reports their Logging setting and Disabled and
+Paused states in a second table. The two tables each have their own filter, sort, and hide controls.
 
 ## Installation
 
@@ -16,90 +20,80 @@ A Hubitat app that scans Rule Machine (RM) and Button Controller (BC) rules and 
 
 ## Overview
 
-![Rule Logging and State Checker screenshot](Screenshot%202026-05-07%20231828.png)
+![Rule Logging and State Checker screenshot](Screenshot%202026-05-07%20231828.png
 
-Button Controller rules show "**—**" in the Events column because BC rules have no Events logging option.
+Button Controller rules show **—** in the Events column because BC rules have no Events logging option.
 
-Rule types that expose only one broad logging toggle (rather than separate Actions, Events, and Triggers controls) — such as Basic Button Controller — appear in the Built-in App Logging table rather than the RM/BC table.
 
----
-
-## Usage
-
-### Scanning
-
-Click **Scan Rules** to start a scan. Both tables update automatically when the scan finishes — no manual refresh needed. Clicking **Done** and reopening the app re-renders both tables instantly from cached data, so display setting changes take effect without a rescan.
-
-> **Note:** If you install a new version, run a fresh scan once to regenerate the tables with any new columns or buttons.
+Rule types that expose only one broad logging toggle (rather than separate Events, Triggers, and Actions controls) appear in the Built-in App Logging table.
 
 ---
 
-### Table Visibility
+## Scanning
 
-Each table can be shown or hidden using the **Show** toggle at the top of its respective **Custom Row and Column Settings** section — changes take effect immediately. Each table heading is also clickable to collapse or expand the table. Both settings persist across page opens.
-
----
-
-### Row Filters
-
-Each table has its own row filter buttons.
-
-- In the RM/BC table, **No logging ON** is active by default, hiding rules where all logging is off; click it to show all rules.
-- In the Built-in App Logging table, **Logging OFF** is active by default.
-
-Multiple row filters evaluate together — a row stays hidden if *any* active filter applies to it.
+Click **Scan All Rules** to start a scan. Both tables update automatically when the scan finishes — no manual refresh needed. Clicking **Done** and reopening the app re-renders both tables instantly from cached data, so display setting changes take effect without a rescan (but use data from the previous scan). If you install a new version, run a fresh scan once to regenerate the tables with any new columns or buttons.
 
 ---
 
-### Rule Name Filter
+## Row Filters
 
-Each table has a wildcard filter field. Use `*` to match any sequence of characters and `?` to match any single character, e.g. `Contact*TU` or `*Motion*`. Filtering is case-insensitive and combines with the row filter buttons — a row must pass both to be visible.
-
----
-
-### Column Buttons and Custom Settings
-
-Each table has its own set of hide-column buttons. Persistent defaults for both tables can be set in the **Custom Row and Column Settings** sections immediately below each table; changes take effect after clicking Done — no rescan needed.
+Each table has its own row filter buttons. In the RM/BC table, **No logging ON** is active by default, hiding rules where all logging is off; click it to show all rules. In the Built-in App Logging table, **Logging OFF** is active by default. Multiple row filters evaluate together — a row stays hidden if *any* active filter applies to it.
 
 ---
 
-### Sorting
+## Name Filter
+
+Each table has a wildcard filter field. Use **\*** to match any sequence of characters and **?** to match any single character, e.g. `Contact*TU` or `*Motion*`. Filtering is case-insensitive and combines with the row filter buttons — a row must pass both to be visible.
+
+---
+
+## Table Visibility
+
+A **Hide** toggle immediately below each table hides or shows that entire table. The setting takes effect immediately and persists across page opens. Each table's section heading is also clickable to collapse or expand it temporarily.
+
+---
+
+## Row and Column Toggle Buttons
+
+Each table has its own hide-row and hide-column buttons above it. Clicking any button saves the preference automatically via the app's local OAuth endpoint — no "Done" press needed and the change persists across page opens.
+
+---
+
+## Sorting
 
 Click any column header to sort by that column; clicking the same header again reverses the sort direction. The default sort is by **Rule** name.
 
 ---
 
-### Clickable Cells — RM/BC Table
+## Clickable Cells — RM/BC Table
 
-Click any **Actions**, **Events**, **Triggers**, **Disabled**, or **Paused** cell to toggle that rule's setting in-place. The cell updates immediately if successful. Cells where the field name could not be determined are not clickable.
-
----
-
-### Clickable Cells — Built-in App Logging Table
-
-Click any **Logging**, **Disabled**, or **Paused** cell to toggle that setting in-place.
-
-> **Note — Paused label on Automations page:** After toggling Paused in the Built-in App Logging table, the rule is correctly paused immediately. However, the **(Paused)** label on the Automations page MAY require a browser page refresh to appear (this is a Hubitat platform behavior, not an app limitation).
+Click any **Events**, **Triggers**, **Actions**, **Disabled**, **Paused**, or **Private Boolean** cell to toggle that rule's setting in-place. The table cell updates immediately if successful. Cells where the field name could not be determined are not clickable.
 
 ---
 
-### Private Boolean (RM/BC Table)
+## Clickable Cells — Built-in App Logging Table
 
-Click any **Private Bool** cell to toggle a rule's Private Boolean between TRUE and false. The toggle calls `RMUtils.sendAction()` via this app's local OAuth endpoint, targeting RM 5.0 rules. Cells showing **—** mean the PB state could not be read and are not clickable.
+Click any **Logging**, **Disabled**, or **Paused** cell to toggle that setting in-place. After toggling **Paused** in the Built-in App Logging table, the rule is correctly paused immediately, but the **(Paused)** label on the Automations page may require a browser page refresh to appear.
+
+---
+
+## Private Boolean (RM/BC Table)
+
+Click any **Private Bool** cell to toggle a rule's Private Boolean between TRUE and false. The toggle calls `RMUtils.sendAction()` via this app's local OAuth endpoint, targeting RM 5.0 rules. Cells showing **—** mean the PB state could not be read and such cells are not clickable.
 
 OAuth is enabled automatically on first install — no manual setup required. If the PB toggle ever shows inactive, re-open the app to retry; if it still fails, enable OAuth manually via the three-dot menu in Apps Code, then re-open. The token persists across hub reboots and app updates.
 
 ---
 
-### Last Run Column
+## Last Run Column
 
 Shows the date and time of the most recent trigger event for each rule, normalised to 24-hour **HH:mm** format regardless of how individual rules store the time. A blank cell means the rule has never been triggered since it was last installed. Last Run reflects when the rule was *triggered*, not necessarily when its actions completed.
 
 ---
 
-### Summary Counts
+## Summary Counts
 
-Shown as part of each table's section heading area. Counts are computed from the most recent scan. Toggling cells in-place updates cells immediately but does not refresh the summary — run **Scan Rules** again to update counts and cached row data.
+Shown as part of each table's heading area. Counts are computed from the most recent scan. Toggling cells in-place updates cells immediately but does not refresh the summary — run **Scan All Rules** again to update counts and cached row data.
 
 ---
 
@@ -113,8 +107,10 @@ This app uses Hubitat local/internal JSON endpoints. Those endpoints and Rule Ma
 
 | Version | Changes |
 |---------|---------|
-| 1.57 | buildSharedReportAssets() extracted so built-in table works when RM/BC list is empty; PB data-sort corrected to 2/1; empty-scan resets bi* counts; initialize() declared void; stale "Scan Rules" UI text updated |
-| 1.56 | Code review fixes: remove false-positive contains() from valueLooks*; fd.append(deviceList) + sentinel; null→'' for non-collection fields; dateFormat captured in extractLastRun; ruleId as Long for RMUtils; @CompileStatic on pure methods; detectRuleLogging log gated on debugEnable; def→void for lifecycle methods; named constants for magic numbers; redundant sort removed from buildBuiltinReportHtml; typed iteration; button label updated to "Scan All Rules" |
+| 1.59 | Events/Triggers/Actions column order throughout to match RM UI; persistent Hide table toggles below each table; Notes and README updated |
+| 1.58 | Row/column toggle buttons now auto-persist preferences via /setpref OAuth endpoint — no Done press needed; Custom Settings sections removed |
+| 1.57 | buildSharedReportAssets() extracted so built-in table works when RM/BC list is empty; PB data-sort corrected to 2/1; empty-scan resets bi* counts; initialize() declared void |
+| 1.56 | Code review fixes: remove false-positive contains() from valueLooks*; fd.append(deviceList) + sentinel; null→'' for non-collection fields; dateFormat in extractLastRun; ruleId as Long; @CompileStatic on pure methods; def→void for lifecycle methods; named constants for magic numbers |
 | 1.55 | Table show/hide toggles moved into Custom Settings sections; spacing added between sections |
 | 1.54 | Both tables now collapsible sections with persistent show/hide state; Custom RM/BC settings moved below RM table |
 | 1.53 | No-op save after built-in app pause toggle forces label update so Automations page reflects (Paused) after a browser refresh |
@@ -124,7 +120,7 @@ This app uses Hubitat local/internal JSON endpoints. Those endpoints and Rule Ma
 | 1.49 | Simple Automation Rules, Basic Button Controller, and Motion Lighting added to Built-in App Logging table |
 | 1.48 | Self-enabling OAuth via hub internal API — no manual Apps Code step needed |
 | 1.47 | Built-in app Paused cells made clickable |
-| 1.46 | Two-table layout; RM/BC and Built-in App stats moved into table headings; Scan Rules button renamed |
+| 1.46 | Two-table layout; RM/BC and Built-in App stats moved into table headings; Scan All Rules button |
 | 1.45 | Hide rows/columns and wildcard filter added to Built-in App Logging table |
 | 1.44 | Wildcard rule name filter added to RM/BC table; second table for built-in apps added |
 | 1.43 | App Type column hideable |
