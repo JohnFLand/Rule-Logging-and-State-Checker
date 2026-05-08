@@ -427,14 +427,14 @@ def mainPage() {
 
         section("Controls", hideable: true, hidden: true) {
             // ── App instance rename ───────────────────────────────────────
-            input "label", "text", title: "App instance name", defaultValue: app.name, submitOnChange: true
+            input "label", "text", title: "<b>App instance name</b>", defaultValue: app.name, submitOnChange: true
 
             // ── Report links — only available after a scan with a token ───
             if (state.accessToken) {
                 String base = "/apps/api/${app.id}/report?access_token=${state.accessToken}"
                 if (state.scanRowsJson) {
                     String rmCsvUrl = "/apps/api/${app.id}/RM-BC_Rules.csv?access_token=${state.accessToken}"
-                    paragraph "<b>RM/BC Table</b> &nbsp;" +
+                    paragraph "<b>RM/BC Rule State Table</b> &nbsp;" +
                         "<a href='${base}&table=rm&format=html' target='_blank'>" +
                         "&#128196; Open Printable Report</a>" +
                         " &nbsp;|&nbsp; " +
@@ -444,7 +444,7 @@ def mainPage() {
                 }
                 if (state.builtinRowsJson) {
                     String biCsvUrl = "/apps/api/${app.id}/Built-In_Rules.csv?access_token=${state.accessToken}"
-                    paragraph "<b>Built-in App Logging</b> &nbsp;" +
+                    paragraph "<b>Built-in App Rule State Table</b> &nbsp;" +
                         "<a href='${base}&table=builtin&format=html' target='_blank'>" +
                         "&#128196; Open Printable Report</a>" +
                         " &nbsp;|&nbsp; " +
@@ -458,7 +458,7 @@ def mainPage() {
 
             // ── Debug logging (last) ──────────────────────────────────────
             input "debugEnable", "bool",
-                title: "Enable debug logging",
+                title: "<b>Enable debug logging</b>",
                 defaultValue:   false,
                 submitOnChange: true
         }
