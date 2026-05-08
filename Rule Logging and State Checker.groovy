@@ -382,7 +382,7 @@ def mainPage() {
         }
 
         boolean rmHidden = (settings.tableRmHidden != null) ? (settings.tableRmHidden as boolean) : false
-        section("Rule Machine and Button Controller Logging and State", hideable: true, hidden: rmHidden) {
+        section("Rule Machine and Button Controller Rule State", hideable: true, hidden: rmHidden) {
             if (state.scannedCount != null) {
                 paragraph "<div style='margin:0;padding:0;line-height:1.5;font-size:1em;'>" +
                           "<b>Rules scanned:</b> ${state.scannedCount ?: 0}; " +
@@ -397,13 +397,13 @@ def mainPage() {
         }
 
         section("") {
-            input "tableRmHidden", "bool", title: "Hide Rule Machine/BC table", defaultValue: false, submitOnChange: true
+            input "tableRmHidden", "bool", title: "Hide Rule Machine/Button Controller Rule State table", defaultValue: false, submitOnChange: true
         }
 
         section("") { paragraph "" }   // spacer between RM/BC and Built-in sections
 
         boolean biHidden = (settings.tableBiHidden != null) ? (settings.tableBiHidden as boolean) : false
-        section("Built-in App Logging", hideable: true, hidden: biHidden) {
+        section("Built-in App Rule State", hideable: true, hidden: biHidden) {
             paragraph "<small style='color:#555;'>for Hubitat built-in apps (Notifications, Basic Rules, Simple Automation Rules, Basic Button Controller, Room Lighting, Motion Lighting) that support a Logging setting</small>"
             if (state.biScannedCount != null) {
                 String biStats = "<div style='margin:0;padding:0;line-height:1.5;font-size:1em;'>" +
@@ -420,7 +420,7 @@ def mainPage() {
         }
 
         section("") {
-            input "tableBiHidden", "bool", title: "Hide Built-in App Logging table", defaultValue: false, submitOnChange: true
+            input "tableBiHidden", "bool", title: "Hide Built-in App Rule State table", defaultValue: false, submitOnChange: true
         }
 
         section("") { paragraph "" }   // spacer between Built-in and Notes sections
