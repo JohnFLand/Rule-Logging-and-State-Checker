@@ -1,10 +1,12 @@
 # Rule Logging and State Checker
 
-A Hubitat app that scans Rule Machine (RM) and Button Controller (BC) rules and reports their
-logging status, Disabled and Paused state, and Private Boolean value. It also scans supported
-Hubitat built-in apps (Notifications, Basic Rules, Simple Automation Rules, Basic Button
-Controller, Room Lighting, Motion Lighting) and reports their Logging setting and Disabled and
-Paused states in a second table. The two tables each have their own filter, sort, and hide controls.
+This app scans Rule Machine (**RM**) and Button Controller (**BC**) rules and reports their logging status (Events, Triggers, Actions), Disabled and Paused states, and Private Boolean value in a first table. It also scans rules of supported Hubitat built-in apps (Notifications, Basic Rules, Simple Automation Rules, Basic Button Controller, Room Lighting, Motion Lighting) and reports their Logging setting and Disabled and Paused states in a second table. The two tables each have their own filter, sort, and hide controls.
+
+Button Controller rules show **—** in the Events column because BC rules have no Events logging option.
+
+Rule types that expose only one broad logging toggle (rather than separate Events, Triggers, and Actions controls) appear in the Built-in App Logging table.
+
+---
 
 ## Installation
 
@@ -18,14 +20,9 @@ Paused states in a second table. The two tables each have their own filter, sort
 
 ---
 
-## Overview
+## Screenshot
 
 ![Rule Logging and State Checker screenshot](Screenshot%202026-05-07%20231828.png)
-
-Button Controller rules show **—** in the Events column because BC rules have no Events logging option.
-
-
-Rule types that expose only one broad logging toggle (rather than separate Events, Triggers, and Actions controls) appear in the Built-in App Logging table.
 
 ---
 
@@ -79,7 +76,9 @@ Click any **Logging**, **Disabled**, or **Paused** cell to toggle that setting i
 
 ## Private Boolean (RM/BC Table)
 
-Click any **Private Bool** cell to toggle a rule's Private Boolean between TRUE and false. The toggle calls `RMUtils.sendAction()` via this app's local OAuth endpoint, targeting RM 5.0 rules. Cells showing **—** mean the PB state could not be read and such cells are not clickable.
+Click any **Private Bool** cell to toggle a rule's Private Boolean between TRUE and FALSE. TRUE is displayed in bold blue; FALSE in grey. Cells showing **—** mean the PB state could not be read and are not clickable.
+
+The toggle calls `RMUtils.sendAction()` via this app's local OAuth endpoint, targeting RM 5.0 rules.
 
 OAuth is enabled automatically on first install — no manual setup required. If the PB toggle ever shows inactive, re-open the app to retry; if it still fails, enable OAuth manually via the three-dot menu in Apps Code, then re-open. The token persists across hub reboots and app updates.
 
@@ -97,6 +96,17 @@ Shown as part of each table's heading area. Counts are computed from the most re
 
 ---
 
+## Controls Section
+
+The collapsible **Controls** section provides four functions:
+
+- **App instance name** — type a custom name for this app instance; the name appears in the Hubitat Apps list and logs.
+- **Printable HTML reports** — opens a clean, print-optimised version of each table in a new browser tab. All rows are shown regardless of current filter state. Use the browser's Print or Save as PDF function from that tab.
+- **CSV export** — downloads the table data as a CSV file (*RM-BC_Rules.csv* or *Built-In_Rules.csv*) for use in a spreadsheet.
+- **Enable debug logging** — turns on verbose logging to the Hubitat log for 30 minutes, then disables itself automatically.
+
+---
+
 ## Warning
 
 This app uses Hubitat local/internal JSON endpoints. Those endpoints and Rule Machine / Button Controller / built-in app internal setting names are not a formal public API, so the detection logic may need to be adjusted if Hubitat changes the JSON format in a future platform update.
@@ -107,14 +117,15 @@ This app uses Hubitat local/internal JSON endpoints. Those endpoints and Rule Ma
 
 | Version | Changes |
 |---------|---------|
-| 1.59 | Events/Triggers/Actions column order throughout to match RM UI; persistent Hide table toggles below each table; Notes and README updated |
-| 1.58 | Row/column toggle buttons now auto-persist preferences via /setpref OAuth endpoint — no Done press needed; Custom Settings sections removed |
-| 1.57 | buildSharedReportAssets() extracted so built-in table works when RM/BC list is empty; PB data-sort corrected to 2/1; empty-scan resets bi* counts; initialize() declared void |
-| 1.56 | Code review fixes: remove false-positive contains() from valueLooks*; fd.append(deviceList) + sentinel; null→'' for non-collection fields; dateFormat in extractLastRun; ruleId as Long; @CompileStatic on pure methods; def→void for lifecycle methods; named constants for magic numbers |
+| 1.60 | Controls section: app rename, printable HTML reports, CSV export per table, debug toggle; Private Bool TRUE now bold blue, FALSE capitalised |
+| 1.59 | Events/Triggers/Actions column order throughout to match RM UI; persistent Hide table toggles below each table |
+| 1.58 | Row/column toggle buttons auto-persist via /setpref OAuth endpoint — no Done press needed; Custom Settings sections removed |
+| 1.57 | buildSharedReportAssets() extracted so built-in table works when RM/BC list is empty; PB data-sort corrected; empty-scan resets bi* counts |
+| 1.56 | Code review fixes: false-positive contains() removed; fd.append(deviceList) + sentinel; null→'' for non-collection fields; dateFormat in extractLastRun; @CompileStatic; named constants |
 | 1.55 | Table show/hide toggles moved into Custom Settings sections; spacing added between sections |
-| 1.54 | Both tables now collapsible sections with persistent show/hide state; Custom RM/BC settings moved below RM table |
-| 1.53 | No-op save after built-in app pause toggle forces label update so Automations page reflects (Paused) after a browser refresh |
-| 1.52 | Pause toggle for built-in app table rows now discovers the correct button name per app type |
+| 1.54 | Both tables now collapsible sections with persistent show/hide state |
+| 1.53 | No-op save after built-in app pause toggle forces Automations page label update after browser refresh |
+| 1.52 | Pause toggle for built-in app rows discovers correct button name per app type |
 | 1.51 | Motion Lighting (Motion and Mode Lighting Apps umbrella) added to built-in app detection |
 | 1.50 | Recursive leaf-finding replaces hardcoded grandchildren pattern in both rule discovery functions |
 | 1.49 | Simple Automation Rules, Basic Button Controller, and Motion Lighting added to Built-in App Logging table |
@@ -126,7 +137,7 @@ This app uses Hubitat local/internal JSON endpoints. Those endpoints and Rule Ma
 | 1.43 | App Type column hideable |
 | 1.42 | OAuth token created automatically on page open |
 | 1.39 | Row filter overlap fix; Last Run date sort fix; PB sort three-way |
-| 1.38 | Robustness fixes: endpoint validation, relative URLs, PB null for unknown, self-consistent row filters |
+| 1.38 | Robustness fixes: endpoint validation, relative URLs, PB null for unknown |
 | 1.35 | Custom Row and Column Settings section with persistent hide preferences |
 | 1.34 | OAuth setup documentation |
 | 1.32 | Private Boolean column clickable via local OAuth endpoint |
