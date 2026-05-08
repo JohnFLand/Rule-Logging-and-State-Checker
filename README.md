@@ -79,7 +79,7 @@ Click any **Actions**, **Events**, **Triggers**, **Disabled**, or **Paused** cel
 
 Click any **Logging**, **Disabled**, or **Paused** cell to toggle that setting in-place.
 
-> **Note — Paused label on Automations page:** After toggling Paused in the Built-in App Logging table, the rule is correctly paused immediately. However, the **(Paused)** label on the Automations page requires a browser page refresh to appear (this is a Hubitat platform behavior, not an app limitation).
+> **Note — Paused label on Automations page:** After toggling Paused in the Built-in App Logging table, the rule is correctly paused immediately. However, the **(Paused)** label on the Automations page MAY require a browser page refresh to appear (this is a Hubitat platform behavior, not an app limitation).
 
 ---
 
