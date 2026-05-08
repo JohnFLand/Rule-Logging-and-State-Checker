@@ -19,6 +19,8 @@
  *  - Private Boolean toggling uses RMUtils.sendAction() with RM version "5.0".
  *    Rules from earlier RM versions will display PB state but the toggle may not work.
  *
+ *  v1.60 — New Controls section: app rename, debug toggle, printable HTML reports,
+ *           and CSV export for each table (all via OAuth endpoints)
  *  v1.59 — Events/Triggers/Actions column order to match RM UI; persistent Hide table
  *           toggles added below each table; Notes updated
  *  v1.58 — Toggle-bar buttons now persist via /setpref OAuth endpoint — no Done press
@@ -111,7 +113,7 @@ import groovy.transform.CompileStatic
 @Field static Map       scanPartialResults = null   // keyed by ruleId String; holds both RM/BC and builtin rows
 
 definition(
-    name:        "Rule Logging and State Checker 1.59",
+    name:        "Rule Logging and State Checker 1.60",
     namespace:   "johnland",
     author:      "John Land & AI",
     description: "Reports logging status and Disabled, Paused, and Private Boolean states for Hubitat rules.",
@@ -133,8 +135,11 @@ preferences {
 // GET /apps/api/{thisAppId}/setPB?id={ruleId}&value=true|false&access_token={token}
 
 mappings {
-    path("/setPB")   { action: [GET: "handleSetPBEndpoint"] }
-    path("/setpref") { action: [GET: "handleSetPrefEndpoint"] }
+    path("/setPB")                  { action: [GET: "handleSetPBEndpoint"] }
+    path("/setpref")                { action: [GET: "handleSetPrefEndpoint"] }
+    path("/report")                 { action: [GET: "handleReportEndpoint"] }
+    path("/RM-BC_Rules.csv")        { action: [GET: "handleRmCsvEndpoint"] }
+    path("/Built-In_Rules.csv")     { action: [GET: "handleBuiltinCsvEndpoint"] }
 }
 
 // ============================================================
@@ -420,6 +425,44 @@ def mainPage() {
 
         section("") { paragraph "" }   // spacer between Built-in and Notes sections
 
+        section("Controls", hideable: true, hidden: true) {
+            // ── App instance rename ───────────────────────────────────────
+            input "label", "text", title: "App instance name", defaultValue: app.name, submitOnChange: true
+
+            // ── Report links — only available after a scan with a token ───
+            if (state.accessToken) {
+                String base = "/apps/api/${app.id}/report?access_token=${state.accessToken}"
+                if (state.scanRowsJson) {
+                    String rmCsvUrl = "/apps/api/${app.id}/RM-BC_Rules.csv?access_token=${state.accessToken}"
+                    paragraph "<b>RM/BC Table</b> &nbsp;" +
+                        "<a href='${base}&table=rm&format=html' target='_blank'>" +
+                        "&#128196; Open Printable Report</a>" +
+                        " &nbsp;|&nbsp; " +
+                        "<a href='${rmCsvUrl}'>&#11015; Download CSV</a>"
+                } else {
+                    paragraph "<small>Run <b>Scan All Rules</b> to enable RM/BC reports.</small>"
+                }
+                if (state.builtinRowsJson) {
+                    String biCsvUrl = "/apps/api/${app.id}/Built-In_Rules.csv?access_token=${state.accessToken}"
+                    paragraph "<b>Built-in App Logging</b> &nbsp;" +
+                        "<a href='${base}&table=builtin&format=html' target='_blank'>" +
+                        "&#128196; Open Printable Report</a>" +
+                        " &nbsp;|&nbsp; " +
+                        "<a href='${biCsvUrl}'>&#11015; Download CSV</a>"
+                } else {
+                    paragraph "<small>Run <b>Scan All Rules</b> to enable Built-in App reports.</small>"
+                }
+            } else {
+                paragraph "<small>OAuth setup required before reports are available.</small>"
+            }
+
+            // ── Debug logging (last) ──────────────────────────────────────
+            input "debugEnable", "bool",
+                title: "Enable debug logging",
+                defaultValue:   false,
+                submitOnChange: true
+        }
+
         section("Notes", hideable: true, hidden: true) {
             paragraph """
                 <b>Overview</b><br>
@@ -428,19 +471,19 @@ def mainPage() {
                 and Private Boolean value in a first table. It also scans rules of supported Hubitat built-in apps
                 (Notifications, Basic Rules, Simple Automation Rules, Basic Button Controller,
                 Room Lighting, Motion Lighting) and reports their Logging setting and Disabled and Paused
-                states in a second table. The two tables each have its own filter, sort, and hide controls.
-                
+                states in a second table. The two tables each have their own filter, sort, and hide controls.
+
                 Button Controller rules show "<b>—</b>" in the Events column because BC rules have no
                 Events logging option.
-                                
-                Rule types that expose only one broad logging toggle (rather than separate 
+
+                Rule types that expose only one broad logging toggle (rather than separate
                 Events, Triggers, and Actions controls) appear in the Built-in App Logging table.
-                <br>		
+                <br>
                 <b>Scanning</b><br>
                 Click <b>Scan All Rules</b> to start a scan. Both tables update automatically when the scan
                 finishes — no manual refresh needed. Clicking <b>Done</b> and reopening the app
                 re-renders both tables instantly from cached data, so display setting changes take effect
-                without a rescan (but use data from the previous scan). If you install a new version, 
+                without a rescan (but use data from the previous scan). If you install a new version,
                 run a fresh scan once to regenerate the tables with any new columns or buttons.
                 <br>
                 <b>Row filters</b><br>
@@ -467,27 +510,30 @@ def mainPage() {
                 endpoint — no "Done" press needed and the change persists across page opens.
                 <br>
                 <b>Sorting</b><br>
-                Click any column header to sort by that column; clicking the same header again reverses
-                the sort direction. The default sort is by <b>Rule</b> name.
+                Click any column header to sort by that column; clicking the same header again 
+                reverses the sort direction. The default sort is by <b>Rule</b> name.
                 <br>
                 <b>Clickable cells — RM/BC table</b><br>
-                Click any <b>Events</b>, <b>Triggers</b>, <b>Actions</b>, <b>Disabled</b>, <b>Paused</b>, 
-                or <b>Private Boolean</b> cell to toggle that rule's setting in-place. 
+                Click any <b>Events</b>, <b>Triggers</b>, <b>Actions</b>, <b>Disabled</b>, <b>Paused</b>,
+                or <b>Private Boolean</b> cell to toggle that rule's setting in-place.
                 The table cell updates immediately if successful.
-
+                
                 Cells where the field name could not be determined are not clickable.
-                                
+                <br>
+                <b>Clickable cells — Built-in App Logging table</b><br>
                 Click any <b>Logging</b>, <b>Disabled</b>, or <b>Paused</b> cell to toggle that setting in-place.
                 After toggling <b>Paused</b> in the Built-in App Logging table, the rule is
                 correctly paused immediately, but the <b>(Paused)</b> label on the Automations
                 page may require a browser page refresh to appear.
                 <br>
                 <b>Private Boolean (RM/BC table)</b><br>
-                Click any <b>Private Bool</b> cell to toggle a rule's Private Boolean between TRUE and
-                false. The toggle calls <code>RMUtils.sendAction()</code> via this app's local OAuth
-                endpoint, targeting RM version ${RM_VERSION} rules. Cells showing "<b>—</b>" mean the PB
-                state could not be read and such cells are not clickable.
+                Click any <b>Private Bool</b> cell to toggle a rule's Private Boolean between TRUE and FALSE.
+                TRUE is displayed in bold blue; FALSE in grey. Cells showing "<b>—</b>" mean the PB
+                state could not be read and are not clickable.
                 
+                The toggle calls <code>RMUtils.sendAction()</code> via this app's local OAuth endpoint,
+                targeting RM version ${RM_VERSION} rules.
+
                 OAuth is enabled automatically on first install — no manual setup required.
                 If the PB toggle ever shows inactive, re-open the app to retry; if it still fails,
                 enable OAuth manually via the three-dot menu in Apps Code, then re-open.
@@ -502,7 +548,19 @@ def mainPage() {
                 <b>Summary counts</b><br>
                 Shown as part of each table's heading area. Counts are computed from the most recent
                 scan. Toggling cells in-place updates cells immediately but does not refresh the
-                summary — run Scan All Rules again to update counts and cached row data.
+                summary — run <b>Scan All Rules</b> again to update counts and cached row data.
+                <br>
+                <b>Controls section</b><br>
+                The collapsible <b>Controls</b> section (above Notes) provides four functions:<br>
+                &bull; <b>App instance name</b> — type a custom name for this app instance; the name
+                appears in the Hubitat Apps list and logs.<br>
+                &bull; <b>Printable HTML reports</b> — opens a clean, print-optimised version of each
+                table in a new browser tab. All rows are shown regardless of current filter state.
+                Use the browser's Print or Save as PDF function from that tab.<br>
+                &bull; <b>CSV export</b> — downloads the table data as a CSV file
+                (<i>RM-BC_Rules.csv</i> or <i>Built-In_Rules.csv</i>) for use in a spreadsheet.<br>
+                &bull; <b>Enable debug logging</b> — turns on verbose logging to the Hubitat log
+                for 30 minutes, then disables itself automatically.
                 <br>
                 <b>WARNING</b><br>
                 This app uses Hubitat local/internal JSON endpoints. Those endpoints and Rule Machine /
@@ -511,13 +569,6 @@ def mainPage() {
                 future platform update.
                 <br>
             """
-        }
-
-        section {
-            input "debugEnable", "bool",
-                title: "Enable debug logging",
-                defaultValue:   false,
-                submitOnChange: true
         }
     }
 }
@@ -1021,6 +1072,193 @@ boolean getPref(String key, boolean defaultVal = false) {
     Map prefs = (state.userPrefs ?: [:]) as Map
     if (prefs.containsKey(key)) return prefs[key]?.toString() == "true"
     return defaultVal
+}
+
+
+// ============================================================
+// Report endpoint — printable HTML and CSV exports
+// ============================================================
+// GET /apps/api/{id}/report?access_token={token}&table={rm|builtin}&format={html|csv}
+// Opens a self-contained printable HTML page (format=html) or triggers a CSV
+// download (format=csv). Both formats use the cached scan rows in state so no
+// rescan is needed. The endpoint is protected by the same OAuth token as /setPB.
+
+def handleReportEndpoint() {
+    if (!state.accessToken) {
+        render contentType: "text/plain", data: "OAuth not active — re-open the app to retry."
+        return
+    }
+    String table  = (params?.table  ?: "rm").toString().toLowerCase()
+    String format = (params?.format ?: "html").toString().toLowerCase()
+
+    // CSV downloads use dedicated named paths (/RM-BC_Rules.csv, /Built-In_Rules.csv)
+    // so the browser derives the filename from the URL — no Content-Disposition header needed.
+    String html = (table == "builtin") ? buildBuiltinPrintHtml() : buildRmPrintHtml()
+    render contentType: "text/html; charset=UTF-8", data: html
+}
+
+// Dedicated CSV download endpoints — named paths give browsers the correct filename.
+def handleRmCsvEndpoint() {
+    if (!state.accessToken) { render contentType: "text/plain", data: "OAuth not active."; return }
+    render contentType: "text/csv; charset=UTF-8", data: buildRmCsv()
+}
+
+def handleBuiltinCsvEndpoint() {
+    if (!state.accessToken) { render contentType: "text/plain", data: "OAuth not active."; return }
+    render contentType: "text/csv; charset=UTF-8", data: buildBuiltinCsv()
+}
+
+// ── Shared print HTML shell ───────────────────────────────────────────────────
+private String printHtmlShell(String title, String subtitle, String tableHtml) {
+    return """<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<title>${htmlEncode(title)}</title>
+<style>
+  body { font-family: Arial, sans-serif; font-size: 12px; margin: 16px; }
+  h2   { font-size: 16px; margin-bottom: 2px; }
+  p.sub { font-size: 11px; color: #555; margin: 0 0 12px; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #bbb; padding: 4px 8px; text-align: left; vertical-align: top; }
+  th { background: #e8e8e8; font-weight: bold; }
+  tr:nth-child(even) { background: #f7f7f7; }
+  .c { text-align: center; }
+  @media print {
+    body { margin: 6mm; font-size: 11px; }
+    a { text-decoration: none; color: inherit; }
+    thead { display: table-header-group; }
+    tr { page-break-inside: avoid; }
+  }
+</style>
+</head><body>
+<h2>${htmlEncode(title)}</h2>
+<p class="sub">${htmlEncode(subtitle)}</p>
+${tableHtml}
+</body></html>"""
+}
+
+// ── RM/BC printable HTML ──────────────────────────────────────────────────────
+@CompileStatic
+private String onOff(Boolean v) {
+    if (v == null) return "—"
+    return v ? "<span style='color:red;font-weight:bold'>ON</span>" : "<span style='color:green'>OFF</span>"
+}
+@CompileStatic
+private String yesNo(Boolean v) {
+    if (v == null) return "—"
+    return v ? "<span style='color:red;font-weight:bold'>Yes</span>" : "<span style='color:green'>No</span>"
+}
+@CompileStatic
+private String pbFmt(Object v) {
+    if (v == null) return "—"
+    return (v as Boolean) ? "<span style='color:blue;font-weight:bold'>TRUE</span>" : "<span style='color:#aaa'>FALSE</span>"
+}
+@CompileStatic
+private String escapeCsv(Object v) {
+    if (v == null) return ""
+    String s = v.toString().replace('"', '""')
+    return (s.contains(",") || s.contains('"') || s.contains("\n")) ? "\"${s}\"" : s
+}
+
+String buildRmPrintHtml() {
+    List<Map> rows = []
+    try { rows = new groovy.json.JsonSlurper().parseText(state.scanRowsJson ?: "[]") as List<Map> } catch (e) {}
+    rows = rows.sort { it.name?.toString()?.toLowerCase() ?: "" }
+
+    StringBuilder sb = new StringBuilder()
+    sb << "<table><thead><tr>"
+    ["Rule ID","Rule","App Type","Disabled","Paused","Events","Triggers","Actions","Private Bool","Last Run"].each {
+        sb << "<th>${it}</th>"
+    }
+    sb << "</tr></thead><tbody>"
+    rows.each { Map r ->
+        sb << "<tr>"
+        sb << "<td class='c'>${htmlEncode(r.id)}</td>"
+        sb << "<td>${htmlEncode(r.name)}</td>"
+        sb << "<td class='c'>${htmlEncode(r.appType ?: "")}</td>"
+        sb << "<td class='c'>${yesNo(r.disabled as Boolean)}</td>"
+        sb << "<td class='c'>${yesNo(r.paused   as Boolean)}</td>"
+        String evCell = (r.appType?.toString() == "BC") ? "—" : onOff(r.eventsOn   as Boolean)
+        sb << "<td class='c'>${evCell}</td>"
+        sb << "<td class='c'>${onOff(r.triggersOn as Boolean)}</td>"
+        sb << "<td class='c'>${onOff(r.actionsOn  as Boolean)}</td>"
+        sb << "<td class='c'>${pbFmt(r.privateBool)}</td>"
+        sb << "<td class='c'>${htmlEncode(r.lastRun ?: "")}</td>"
+        sb << "</tr>"
+    }
+    sb << "</tbody></table>"
+
+    String subtitle = "Last scan: ${state.lastScan ?: "never"} — ${rows.size()} rules"
+    return printHtmlShell("Rule Machine and Button Controller Logging and State", subtitle, sb.toString())
+}
+
+// ── Built-in printable HTML ───────────────────────────────────────────────────
+String buildBuiltinPrintHtml() {
+    List<Map> rows = []
+    try { rows = new groovy.json.JsonSlurper().parseText(state.builtinRowsJson ?: "[]") as List<Map> } catch (e) {}
+    rows = rows.sort { it.name?.toString()?.toLowerCase() ?: "" }
+
+    StringBuilder sb = new StringBuilder()
+    sb << "<table><thead><tr>"
+    ["Rule ID","Rule","App Type","Disabled","Paused","Logging","Last Run"].each {
+        sb << "<th>${it}</th>"
+    }
+    sb << "</tr></thead><tbody>"
+    rows.each { Map r ->
+        Boolean logVal = r.logging == null ? null : (r.logging as Boolean)
+        String logFmt  = (logVal == null) ? "—" : logVal ? "<span style='color:red;font-weight:bold'>ON</span>" : "<span style='color:green'>OFF</span>"
+        sb << "<tr>"
+        sb << "<td class='c'>${htmlEncode(r.id)}</td>"
+        sb << "<td>${htmlEncode(r.name)}</td>"
+        sb << "<td class='c'>${htmlEncode(r.appType ?: "")}</td>"
+        sb << "<td class='c'>${yesNo(r.disabled as Boolean)}</td>"
+        sb << "<td class='c'>${yesNo(r.paused   as Boolean)}</td>"
+        sb << "<td class='c'>${logFmt}</td>"
+        sb << "<td class='c'>${htmlEncode(r.lastRun ?: "")}</td>"
+        sb << "</tr>"
+    }
+    sb << "</tbody></table>"
+
+    String subtitle = "Last scan: ${state.lastScan ?: "never"} — ${rows.size()} apps"
+    return printHtmlShell("Built-in App Logging", subtitle, sb.toString())
+}
+
+// ── RM/BC CSV ─────────────────────────────────────────────────────────────────
+String buildRmCsv() {
+    List<Map> rows = []
+    try { rows = new groovy.json.JsonSlurper().parseText(state.scanRowsJson ?: "[]") as List<Map> } catch (e) {}
+    rows = rows.sort { it.name?.toString()?.toLowerCase() ?: "" }
+
+    StringBuilder sb = new StringBuilder()
+    sb << "Rule ID,Rule,App Type,Disabled,Paused,Events,Triggers,Actions,Private Bool,Last Run\n"
+    rows.each { Map r ->
+        String ev = (r.appType?.toString() == "BC") ? "—" : (r.eventsOn == null ? "—" : (r.eventsOn as Boolean) ? "ON" : "OFF")
+        sb << "${escapeCsv(r.id)},${escapeCsv(r.name)},${escapeCsv(r.appType)}"
+        sb << ",${r.disabled ? "Yes" : "No"},${r.paused ? "Yes" : "No"}"
+        sb << ",${ev}"
+        sb << ",${r.triggersOn == null ? "—" : (r.triggersOn as Boolean) ? "ON" : "OFF"}"
+        sb << ",${r.actionsOn  == null ? "—" : (r.actionsOn  as Boolean) ? "ON" : "OFF"}"
+        sb << ",${r.privateBool == null ? "—" : (r.privateBool as Boolean) ? "TRUE" : "false"}"
+        sb << ",${escapeCsv(r.lastRun)}\n"
+    }
+    return sb.toString()
+}
+
+// ── Built-in CSV ──────────────────────────────────────────────────────────────
+String buildBuiltinCsv() {
+    List<Map> rows = []
+    try { rows = new groovy.json.JsonSlurper().parseText(state.builtinRowsJson ?: "[]") as List<Map> } catch (e) {}
+    rows = rows.sort { it.name?.toString()?.toLowerCase() ?: "" }
+
+    StringBuilder sb = new StringBuilder()
+    sb << "Rule ID,Rule,App Type,Disabled,Paused,Logging,Last Run\n"
+    rows.each { Map r ->
+        Boolean logVal = r.logging == null ? null : (r.logging as Boolean)
+        String  logStr = logVal == null ? "—" : logVal ? "ON" : "OFF"
+        sb << "${escapeCsv(r.id)},${escapeCsv(r.name)},${escapeCsv(r.appType)}"
+        sb << ",${r.disabled ? "Yes" : "No"},${r.paused ? "Yes" : "No"}"
+        sb << ",${logStr},${escapeCsv(r.lastRun)}\n"
+    }
+    return sb.toString()
 }
 
 // ============================================================
@@ -1752,8 +1990,8 @@ async function rmTogglePB(td) {
         if (result.status !== 'success') throw new Error(result.message || JSON.stringify(result));
         td.dataset.on = String(newOn);
         td.setAttribute('data-sort', newOn ? '2' : '1');   // three-way: unknown=0, false=1, true=2
-        td.innerHTML = newOn ? "<span style='color:darkorange;font-weight:bold;'>TRUE</span>"
-                             : "<span style='color:#aaa;'>false</span>";
+        td.innerHTML = newOn ? "<span style='color:blue;font-weight:bold;'>TRUE</span>"
+                             : "<span style='color:#aaa;'>FALSE</span>";
     } catch(e) {
         alert('Toggle Private Boolean failed: ' + e.message);
     } finally {
@@ -1877,8 +2115,8 @@ String buildReportHtml(List<Map> rows) {
         // privateBool: null = unknown (field absent), true/false = known state
         Boolean pbVal  = r.privateBool == null ? null : (r.privateBool as Boolean)
         String  pbFmt  = (pbVal == null)  ? "<span style='color:#999;'>—</span>"
-                       : pbVal            ? "<span style='color:darkorange;font-weight:bold;'>TRUE</span>"
-                                          : "<span style='color:#aaa;'>false</span>"
+                       : pbVal            ? "<span style='color:blue;font-weight:bold;'>TRUE</span>"
+                                          : "<span style='color:#aaa;'>FALSE</span>"
         String pbSort  = (pbVal == true) ? "2" : (pbVal == false) ? "1" : "0"
 
         String lastRun = htmlEncode(r.lastRun ?: "")
