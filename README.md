@@ -20,7 +20,7 @@ Paused states in a second table. The two tables each have their own filter, sort
 
 ## Overview
 
-![Rule Logging and State Checker screenshot](Screenshot%202026-05-07%20231828.png
+![Rule Logging and State Checker screenshot](Screenshot%202026-05-07%20231828.png)
 
 Button Controller rules show **—** in the Events column because BC rules have no Events logging option.
 
