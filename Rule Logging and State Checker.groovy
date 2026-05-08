@@ -19,6 +19,11 @@
  *  - Private Boolean toggling uses RMUtils.sendAction() with RM version "5.0".
  *    Rules from earlier RM versions will display PB state but the toggle may not work.
  *
+ *  v1.59 — Events/Triggers/Actions column order to match RM UI; persistent Hide table
+ *           toggles added below each table; Notes updated
+ *  v1.58 — Toggle-bar buttons now persist via /setpref OAuth endpoint — no Done press
+ *           needed for row/column hide preferences; getPref() reads state.userPrefs
+ *           with fallback to settings.* for backward compatibility
  *  v1.57 — buildSharedReportAssets() extracted so built-in table works when RM/BC list is
  *           empty; PB data-sort corrected to 2/1; empty-scan resets bi* counts;
  *           initialize() declared void; stale "Scan Rules" UI text updated
@@ -106,7 +111,7 @@ import groovy.transform.CompileStatic
 @Field static Map       scanPartialResults = null   // keyed by ruleId String; holds both RM/BC and builtin rows
 
 definition(
-    name:        "Rule Logging and State Checker 1.57",
+    name:        "Rule Logging and State Checker 1.59",
     namespace:   "johnland",
     author:      "John Land & AI",
     description: "Reports logging status and Disabled, Paused, and Private Boolean states for Hubitat rules.",
@@ -128,9 +133,8 @@ preferences {
 // GET /apps/api/{thisAppId}/setPB?id={ruleId}&value=true|false&access_token={token}
 
 mappings {
-    path("/setPB") {
-        action: [GET: "handleSetPBEndpoint"]
-    }
+    path("/setPB")   { action: [GET: "handleSetPBEndpoint"] }
+    path("/setpref") { action: [GET: "handleSetPrefEndpoint"] }
 }
 
 // ============================================================
@@ -372,46 +376,29 @@ def mainPage() {
             }
         }
 
-        boolean expandRm = (settings.tableRmExpanded != null) ? (settings.tableRmExpanded as boolean) : true
-        section("Rule Machine and Button Controller Logging and State", hideable: true, hidden: !expandRm) {
+        boolean rmHidden = (settings.tableRmHidden != null) ? (settings.tableRmHidden as boolean) : false
+        section("Rule Machine and Button Controller Logging and State", hideable: true, hidden: rmHidden) {
             if (state.scannedCount != null) {
                 paragraph "<div style='margin:0;padding:0;line-height:1.5;font-size:1em;'>" +
                           "<b>Rules scanned:</b> ${state.scannedCount ?: 0}; " +
                           "<b>Any logging ON:</b> ${state.anyLoggingOnCount ?: 0}; " +
-                          "<b>Actions:</b> ${state.actionsOnCount ?: 0}; " +
                           "<b>Events:</b> ${state.eventsOnCount ?: 0}; " +
                           "<b>Triggers:</b> ${state.triggersOnCount ?: 0}; " +
+                          "<b>Actions:</b> ${state.actionsOnCount ?: 0}; " +
                           "<b>Private Bool TRUE:</b> ${state.privateBoolOnCount ?: 0}" +
                           "<br><br></div>"
             }
             paragraph(state.reportHtml ?: "Click <b>Scan All Rules</b> to begin.")
         }
 
-        section("Custom Row and Column Settings for Rule Machine/Button Controller Rules", hideable: true, hidden: true) {
-            paragraph ""
-            input "tableRmExpanded", "bool", title: "Show Rule Machine/BC table",    defaultValue: true, submitOnChange: true
-            paragraph "<br><b>Hide Rows</b> — choose which row categories start hidden when the table loads."
-            input "hideRowDisabled", "bool", title: "Hide 'Disabled rules' rows",    defaultValue: false
-            input "hideRowPaused",   "bool", title: "Hide 'Paused rules' rows",      defaultValue: false
-            input "hideRowLogOff",   "bool", title: "Hide 'No logging ON' rows",     defaultValue: true
-            paragraph "<br><b>Hide Columns</b> — choose which columns start hidden when the table loads."
-            input "hideColRuleId",   "bool", title: "Hide 'Rule ID' column",         defaultValue: false
-            input "hideColAppType",  "bool", title: "Hide 'App Type' column",        defaultValue: false
-            input "hideColDisabled", "bool", title: "Hide 'Disabled' column",        defaultValue: false
-            input "hideColPaused",   "bool", title: "Hide 'Paused' column",          defaultValue: false
-            input "hideColActions",  "bool", title: "Hide 'Actions' column",         defaultValue: false
-            input "hideColEvents",   "bool", title: "Hide 'Events' column",          defaultValue: false
-            input "hideColTriggers", "bool", title: "Hide 'Triggers' column",        defaultValue: false
-            input "hideColPB",       "bool", title: "Hide 'Private Bool' column",    defaultValue: false
-            input "hideColLastRun",  "bool", title: "Hide 'Last Run' column",        defaultValue: false
-            paragraph "<small>Setting changes take effect after clicking Done — no rescan needed. " +
-                      "However, if you have just installed a new version of the app, run a fresh scan once to regenerate the table with any new columns or buttons.</small>"
+        section("") {
+            input "tableRmHidden", "bool", title: "Hide Rule Machine/BC table", defaultValue: false, submitOnChange: true
         }
 
         section("") { paragraph "" }   // spacer between RM/BC and Built-in sections
 
-        boolean expandBi = (settings.tableBiExpanded != null) ? (settings.tableBiExpanded as boolean) : true
-        section("Built-in App Logging", hideable: true, hidden: !expandBi) {
+        boolean biHidden = (settings.tableBiHidden != null) ? (settings.tableBiHidden as boolean) : false
+        section("Built-in App Logging", hideable: true, hidden: biHidden) {
             paragraph "<small style='color:#555;'>for Hubitat built-in apps (Notifications, Basic Rules, Simple Automation Rules, Basic Button Controller, Room Lighting, Motion Lighting) that support a Logging setting</small>"
             if (state.biScannedCount != null) {
                 String biStats = "<div style='margin:0;padding:0;line-height:1.5;font-size:1em;'>" +
@@ -427,21 +414,8 @@ def mainPage() {
             if (state.builtinReportHtml) paragraph(state.builtinReportHtml)
         }
 
-        section("Custom Row and Column Settings for Built-in App Logging", hideable: true, hidden: true) {
-            paragraph ""          
-            input "tableBiExpanded", "bool", title: "Show Built-in App Logging table", defaultValue: true, submitOnChange: true
-            paragraph "<br><b>Hide Rows</b> — choose which row categories start hidden when the Built-in App Logging table loads."
-            input "hideBiRowDisabled", "bool", title: "Hide 'Disabled rules' rows",    defaultValue: false
-            input "hideBiRowPaused",   "bool", title: "Hide 'Paused rules' rows",      defaultValue: false
-            input "hideBiRowLogOff",   "bool", title: "Hide 'Logging OFF' rows",       defaultValue: false
-            paragraph "<br><b>Hide Columns</b> — choose which columns start hidden when the Built-in App Logging table loads."
-            input "hideBiColRuleId",   "bool", title: "Hide 'Rule ID' column",         defaultValue: false
-            input "hideBiColAppType",  "bool", title: "Hide 'App Type' column",        defaultValue: false
-            input "hideBiColDisabled", "bool", title: "Hide 'Disabled' column",        defaultValue: false
-            input "hideBiColPaused",   "bool", title: "Hide 'Paused' column",          defaultValue: false
-            input "hideBiColLogging",  "bool", title: "Hide 'Logging' column",         defaultValue: false
-            input "hideBiColLastRun",  "bool", title: "Hide 'Last Run' column",        defaultValue: false
-            paragraph "<small>Setting changes take effect after clicking Done — no rescan needed.</small>"
+        section("") {
+            input "tableBiHidden", "bool", title: "Hide Built-in App Logging table", defaultValue: false, submitOnChange: true
         }
 
         section("") { paragraph "" }   // spacer between Built-in and Notes sections
@@ -450,24 +424,24 @@ def mainPage() {
             paragraph """
                 <b>Overview</b><br>
                 This app scans Rule Machine (<b>RM</b>) and Button Controller (<b>BC</b>) rules and
-                reports their logging status (Actions, Events, Triggers), Disabled and Paused state,
-                and Private Boolean value. It also scans supported Hubitat built-in apps
+                reports their logging status (Events, Triggers, Actions), Disabled and Paused states,
+                and Private Boolean value in a first table. It also scans rules of supported Hubitat built-in apps
                 (Notifications, Basic Rules, Simple Automation Rules, Basic Button Controller,
-                Room Lighting, and Motion Lighting) and reports their Logging setting.
-                Results appear in two separate tables, each with its own filter, sort, and hide controls.
-                <br>
-                Button Controller rules show <b>—</b> in the Events column because BC rules have no
+                Room Lighting, Motion Lighting) and reports their Logging setting and Disabled and Paused
+                states in a second table. The two tables each have its own filter, sort, and hide controls.
+                
+                Button Controller rules show "<b>—</b>" in the Events column because BC rules have no
                 Events logging option.
-                <br>                
+                                
                 Rule types that expose only one broad logging toggle (rather than separate 
-		            Actions, Events, and Triggers controls) appear in the Built-in App Logging table.
+                Events, Triggers, and Actions controls) appear in the Built-in App Logging table.
                 <br>		
                 <b>Scanning</b><br>
                 Click <b>Scan All Rules</b> to start a scan. Both tables update automatically when the scan
                 finishes — no manual refresh needed. Clicking <b>Done</b> and reopening the app
                 re-renders both tables instantly from cached data, so display setting changes take effect
-                without a rescan. If you install a new version, run a fresh scan once to regenerate
-                the tables with any new columns or buttons.
+                without a rescan (but use data from the previous scan). If you install a new version, 
+                run a fresh scan once to regenerate the tables with any new columns or buttons.
                 <br>
                 <b>Row filters</b><br>
                 Each table has its own row filter buttons. In the RM/BC table, <b>No logging ON</b>
@@ -483,35 +457,37 @@ def mainPage() {
                 buttons — a row must pass both to be visible.
                 <br>
                 <b>Table Visibility</b><br>
-                Each table can be shown or hidden using the <b>Show</b> toggle at the top of its
-                respective <b>Custom Row and Column Settings</b> section — changes take effect
-                immediately. Each table heading is also clickable to collapse or expand the table.
+                A <b>Hide</b> toggle immediately below each table hides or shows that entire table.
+                The setting takes effect immediately and persists across page opens.
+                Each table's section heading is also clickable to collapse or expand it temporarily.
                 <br>
-                <b>Column buttons and Custom Settings sections</b><br>
-                Each table has its own set of hide-column buttons. Persistent defaults for both tables
-                can be set in the <b>Custom Row and Column Settings</b> sections immediately below
-                each table; changes take effect after clicking Done — no rescan needed.
+                <b>Row and column toggle buttons</b><br>
+                Each table has its own hide-row and hide-column buttons above it.
+                Clicking any button saves the preference automatically via the app's local OAuth
+                endpoint — no "Done" press needed and the change persists across page opens.
                 <br>
                 <b>Sorting</b><br>
                 Click any column header to sort by that column; clicking the same header again reverses
                 the sort direction. The default sort is by <b>Rule</b> name.
                 <br>
                 <b>Clickable cells — RM/BC table</b><br>
-                Click any <b>Actions</b>, <b>Events</b>, <b>Triggers</b>, <b>Disabled</b>, or
-                <b>Paused</b> cell to toggle that rule's setting in-place. The cell updates immediately
-                if successful. Cells where the field name could not be determined are not clickable.
-                <br>
-                <b>Clickable cells — Built-in App Logging table</b><br>
+                Click any <b>Events</b>, <b>Triggers</b>, <b>Actions</b>, <b>Disabled</b>, <b>Paused</b>, 
+                or <b>Private Boolean</b> cell to toggle that rule's setting in-place. 
+                The table cell updates immediately if successful.
+
+                Cells where the field name could not be determined are not clickable.
+                                
                 Click any <b>Logging</b>, <b>Disabled</b>, or <b>Paused</b> cell to toggle that setting in-place.
                 After toggling <b>Paused</b> in the Built-in App Logging table, the rule is
                 correctly paused immediately, but the <b>(Paused)</b> label on the Automations
-                page requires a browser page refresh to appear.
+                page may require a browser page refresh to appear.
                 <br>
                 <b>Private Boolean (RM/BC table)</b><br>
                 Click any <b>Private Bool</b> cell to toggle a rule's Private Boolean between TRUE and
                 false. The toggle calls <code>RMUtils.sendAction()</code> via this app's local OAuth
-                endpoint, targeting RM version ${RM_VERSION} rules. Cells showing <b>—</b> mean the PB
-                state could not be read and are not clickable.
+                endpoint, targeting RM version ${RM_VERSION} rules. Cells showing "<b>—</b>" mean the PB
+                state could not be read and such cells are not clickable.
+                
                 OAuth is enabled automatically on first install — no manual setup required.
                 If the PB toggle ever shows inactive, re-open the app to retry; if it still fails,
                 enable OAuth manually via the three-dot menu in Apps Code, then re-open.
@@ -825,7 +801,7 @@ void finalizeScan() {
     scanPartialResults = null
     scanRuleQueue      = null
 
-    log.info "Scan complete in ${state.scanDuration}: ${rmRows.size()} RM/BC rules (any logging ON: ${anyLoggingOnCount}, Actions: ${actionsOnCount}, Events: ${eventsOnCount}, Triggers: ${triggersOnCount}, PB TRUE: ${privateBoolOnCount}); ${builtinRows.size()} built-in apps"
+    log.info "Scan complete in ${state.scanDuration}: ${rmRows.size()} RM/BC rules (any logging ON: ${anyLoggingOnCount}, Events: ${eventsOnCount}, Triggers: ${triggersOnCount}, Actions: ${actionsOnCount}, PB TRUE: ${privateBoolOnCount}); ${builtinRows.size()} built-in apps"
 }
 
 void finalizeScanTimeout() {
@@ -951,9 +927,9 @@ List<Map> getBuiltinAppInstances() {
             resp.data?.apps?.each { parentApp ->
                 def pd = parentApp?.data
                 if (!pd) return
-                String type  = pd?.type?.toString()  ?: ""
-                String name  = pd?.name?.toString()  ?: ""
-                String label = pd?.label?.toString() ?: ""
+                String type    = pd?.type?.toString()  ?: ""
+                String name    = pd?.name?.toString()  ?: ""
+                String label   = pd?.label?.toString() ?: ""
                 String appType = getBuiltinAppType(type, name, label)
 
                 // Found a supported built-in parent — recursively collect leaf nodes.
@@ -1023,6 +999,28 @@ String getBuiltinAppType(String type, String name, String label = "") {
     if (combined.contains("notification")             && !combined.contains("button")        &&
         !combined.contains("rule"))                                                                  return "Notifications"
     return null
+}
+
+// ── Preference persistence endpoint ─────────────────────────────────────────
+// Called by toggle-bar buttons via fetch() to persist their state without a
+// page reload. Values are stored in state.userPrefs and read via getPref().
+def handleSetPrefEndpoint() {
+    if (!state.accessToken) { render contentType: "application/json", data: '{"status":"error","message":"OAuth not active"}'; return }
+    String key   = params?.key?.toString()
+    String value = params?.value?.toString()
+    if (!key) { render contentType: "application/json", data: '{"status":"error","message":"missing key"}'; return }
+    Map prefs = (state.userPrefs ?: [:]) as Map
+    prefs[key] = value
+    state.userPrefs = prefs
+    render contentType: "application/json", data: '{"status":"success"}'
+}
+
+// Read a toggle-bar preference. Priority: state.userPrefs (set by JS click) →
+// settings.* (legacy Done-saved value) → defaultVal.
+boolean getPref(String key, boolean defaultVal = false) {
+    Map prefs = (state.userPrefs ?: [:]) as Map
+    if (prefs.containsKey(key)) return prefs[key]?.toString() == "true"
+    return defaultVal
 }
 
 // ============================================================
@@ -1317,7 +1315,7 @@ String extractLastRun(Map status) {
 // Always called from buildReportHtml() — even when rows is empty — so the
 // built-in table has sortRmLogTable, wildcardToRegex, rmToggle*, etc. available
 // regardless of whether there are any RM/BC rules to display.
-String buildSharedReportAssets(String pbEndpoint) {
+String buildSharedReportAssets(String pbEndpoint, String prefEndpoint = "") {
     StringBuilder sb = new StringBuilder()
     sb << "<style>"
     sb << "table.rmlogcheck{border-collapse:collapse;width:100%;}"
@@ -1338,8 +1336,8 @@ String buildSharedReportAssets(String pbEndpoint) {
     sb << ".rmname-filter{padding:2px 6px;font-size:0.9em;border:1px solid #aaa;border-radius:3px;vertical-align:middle;}"
     sb << "</style>"
 
-    // Embed the PB endpoint URL as a JS variable using JsonOutput so the token is safely escaped.
-    sb << "<script>var rmPbEndpoint = ${groovy.json.JsonOutput.toJson(pbEndpoint ?: null)};</script>"
+    // Embed both endpoint URLs as JS variables using JsonOutput for safe token escaping.
+    sb << "<script>var rmPbEndpoint = ${groovy.json.JsonOutput.toJson(pbEndpoint ?: null)}; var rmPrefEndpoint = ${groovy.json.JsonOutput.toJson(prefEndpoint ?: null)};</script>"
 
     sb << '''<script>
 function sortRmLogTable(tableId, columnIndex) {
@@ -1376,10 +1374,17 @@ function sortRmLogTable(tableId, columnIndex) {
 }
 
 // Column hide toggle — operates only on column elements, not rows.
+function persistPref(key, value) {
+    if (!key || !rmPrefEndpoint) return;
+    fetch(rmPrefEndpoint + '&key=' + encodeURIComponent(key) + '&value=' + encodeURIComponent(value))
+        .catch(function(e) { console.warn('persistPref failed:', e.message); });
+}
+
 function toggleRmCol(cls, btn) {
     var hiding = btn.className.indexOf('hidden-col') === -1;
     document.querySelectorAll('.' + cls).forEach(function(el) { el.style.display = hiding ? 'none' : ''; });
     btn.className = hiding ? 'rmcol-btn hidden-col' : 'rmcol-btn';
+    persistPref(btn.dataset.prefKey, String(hiding));
 }
 
 // Row filter helpers — evaluate ALL active row filters together so that a row
@@ -1448,6 +1453,7 @@ function toggleRmRowFilter(btn) {
     var hiding = btn.className.indexOf('hidden-col') === -1;
     btn.className = hiding ? 'rmcol-btn hidden-col' : 'rmcol-btn';
     applyRmRowFilters();
+    persistPref(btn.dataset.prefKey, String(hiding));
 }
 
 async function rmToggleLogging(td) {
@@ -1770,15 +1776,17 @@ String buildReportHtml(List<Map> rows) {
     // Build the local OAuth endpoint URL for PB toggling (relative — no hub IP).
     // The access token is embedded in the rendered HTML so the JS click handler can call it.
     // The token is already scoped to this app and only works on the local network.
-    String pbEndpoint = ""
+    String pbEndpoint   = ""
+    String prefEndpoint = ""
     if (state.accessToken) {
-        pbEndpoint = "/apps/api/${app.id}/setPB?access_token=${state.accessToken}"
+        pbEndpoint   = "/apps/api/${app.id}/setPB?access_token=${state.accessToken}"
+        prefEndpoint = "/apps/api/${app.id}/setpref?access_token=${state.accessToken}"
     } else {
         log.warn "buildReportHtml: no access token — PB cells will render as non-clickable. Re-save the app to generate a token."
     }
 
     StringBuilder sb = new StringBuilder()
-    sb << buildSharedReportAssets(pbEndpoint)
+    sb << buildSharedReportAssets(pbEndpoint, prefEndpoint)
 
     if (!rows) {
         sb << "<p>No rules found. Click <b>Scan All Rules</b> to begin.</p>"
@@ -1788,18 +1796,18 @@ String buildReportHtml(List<Map> rows) {
 
     // Derive initial button classes from settings
     // Read custom visibility settings — defaults match original behaviour (only No logging ON hidden)
-    boolean cfgHideRowDisabled = settings.hideRowDisabled ?: false
-    boolean cfgHideRowPaused   = settings.hideRowPaused   ?: false
-    boolean cfgHideRowLogOff   = (settings.hideRowLogOff  != null) ? (settings.hideRowLogOff  as boolean) : true
-    boolean cfgHideColRuleId   = settings.hideColRuleId   ?: false
-    boolean cfgHideColAppType  = settings.hideColAppType  ?: false
-    boolean cfgHideColDisabled = settings.hideColDisabled ?: false
-    boolean cfgHideColPaused   = settings.hideColPaused   ?: false
-    boolean cfgHideColActions  = settings.hideColActions  ?: false
-    boolean cfgHideColEvents   = settings.hideColEvents   ?: false
-    boolean cfgHideColTriggers = settings.hideColTriggers ?: false
-    boolean cfgHideColPB       = settings.hideColPB       ?: false
-    boolean cfgHideColLastRun  = settings.hideColLastRun  ?: false
+    boolean cfgHideRowDisabled = getPref("hideRowDisabled", false)
+    boolean cfgHideRowPaused   = getPref("hideRowPaused",   false)
+    boolean cfgHideRowLogOff   = getPref("hideRowLogOff",   true)
+    boolean cfgHideColRuleId   = getPref("hideColRuleId",   false)
+    boolean cfgHideColAppType  = getPref("hideColAppType",  false)
+    boolean cfgHideColDisabled = getPref("hideColDisabled", false)
+    boolean cfgHideColPaused   = getPref("hideColPaused",   false)
+    boolean cfgHideColActions  = getPref("hideColActions",  false)
+    boolean cfgHideColEvents   = getPref("hideColEvents",   false)
+    boolean cfgHideColTriggers = getPref("hideColTriggers", false)
+    boolean cfgHideColPB       = getPref("hideColPB",       false)
+    boolean cfgHideColLastRun  = getPref("hideColLastRun",  false)
 
     String btnRowDisabled = cfgHideRowDisabled  ? "rmcol-btn hidden-col" : "rmcol-btn"
     String btnRowPaused   = cfgHideRowPaused    ? "rmcol-btn hidden-col" : "rmcol-btn"
@@ -1817,21 +1825,21 @@ String buildReportHtml(List<Map> rows) {
     sb << "<div class='rmcol-toggle-bar'>"
     sb << "<b>Hide rows:</b>&nbsp;"
     // Row buttons use toggleRmRowFilter() so multiple active filters evaluate together
-    sb << "<span id='rmtoggle-rmrow-disabled' class='${btnRowDisabled}' onclick=\"toggleRmRowFilter(this)\">Disabled rules</span>"
-    sb << "<span id='rmtoggle-rmrow-paused'   class='${btnRowPaused}'   onclick=\"toggleRmRowFilter(this)\">Paused rules</span>"
-    sb << "<span id='rmtoggle-rmrow-logoff'   class='${btnRowLogOff}'   onclick=\"toggleRmRowFilter(this)\">No logging ON</span>"
+    sb << "<span id='rmtoggle-rmrow-disabled' class='${btnRowDisabled}' data-pref-key='hideRowDisabled' onclick=\"toggleRmRowFilter(this)\">Disabled rules</span>"
+    sb << "<span id='rmtoggle-rmrow-paused'   class='${btnRowPaused}'   data-pref-key='hideRowPaused' onclick=\"toggleRmRowFilter(this)\">Paused rules</span>"
+    sb << "<span id='rmtoggle-rmrow-logoff'   class='${btnRowLogOff}'   data-pref-key='hideRowLogOff' onclick=\"toggleRmRowFilter(this)\">No logging ON</span>"
     sb << "&nbsp;&nbsp;<b>Hide columns:</b>&nbsp;"
-    sb << "<span id='rmtoggle-rmcol-ruleid'   class='${btnColRuleId}'   onclick=\"toggleRmCol('rmcol-ruleid',this)\">Rule ID</span>"
-    sb << "<span id='rmtoggle-rmcol-apptype'  class='${btnColAppType}'  onclick=\"toggleRmCol('rmcol-apptype',this)\">App Type</span>"
-    sb << "<span id='rmtoggle-rmcol-disabled' class='${btnColDisabled}' onclick=\"toggleRmCol('rmcol-disabled',this)\">Disabled</span>"
-    sb << "<span id='rmtoggle-rmcol-paused'   class='${btnColPaused}'   onclick=\"toggleRmCol('rmcol-paused',this)\">Paused</span>"
-    sb << "<span id='rmtoggle-rmcol-actions'  class='${btnColActions}'  onclick=\"toggleRmCol('rmcol-actions',this)\">Actions</span>"
-    sb << "<span id='rmtoggle-rmcol-events'   class='${btnColEvents}'   onclick=\"toggleRmCol('rmcol-events',this)\">Events</span>"
-    sb << "<span id='rmtoggle-rmcol-triggers' class='${btnColTriggers}' onclick=\"toggleRmCol('rmcol-triggers',this)\">Triggers</span>"
-    sb << "<span id='rmtoggle-rmcol-pb'       class='${btnColPB}'       onclick=\"toggleRmCol('rmcol-pb',this)\">Private Bool</span>"
-    sb << "<span id='rmtoggle-rmcol-lastrun'  class='${btnColLastRun}'  onclick=\"toggleRmCol('rmcol-lastrun',this)\">Last Run</span>"
+    sb << "<span id='rmtoggle-rmcol-ruleid'   class='${btnColRuleId}'   data-pref-key='hideColRuleId' onclick=\"toggleRmCol('rmcol-ruleid',this)\">Rule ID</span>"
+    sb << "<span id='rmtoggle-rmcol-apptype'  class='${btnColAppType}'  data-pref-key='hideColAppType' onclick=\"toggleRmCol('rmcol-apptype',this)\">App Type</span>"
+    sb << "<span id='rmtoggle-rmcol-disabled' class='${btnColDisabled}' data-pref-key='hideColDisabled' onclick=\"toggleRmCol('rmcol-disabled',this)\">Disabled</span>"
+    sb << "<span id='rmtoggle-rmcol-paused'   class='${btnColPaused}'   data-pref-key='hideColPaused' onclick=\"toggleRmCol('rmcol-paused',this)\">Paused</span>"
+    sb << "<span id='rmtoggle-rmcol-events'   class='${btnColEvents}'   data-pref-key='hideColEvents' onclick=\"toggleRmCol('rmcol-events',this)\">Events</span>"
+    sb << "<span id='rmtoggle-rmcol-triggers' class='${btnColTriggers}' data-pref-key='hideColTriggers' onclick=\"toggleRmCol('rmcol-triggers',this)\">Triggers</span>"
+    sb << "<span id='rmtoggle-rmcol-actions'  class='${btnColActions}'  data-pref-key='hideColActions' onclick=\"toggleRmCol('rmcol-actions',this)\">Actions</span>"
+    sb << "<span id='rmtoggle-rmcol-pb'       class='${btnColPB}'       data-pref-key='hideColPB' onclick=\"toggleRmCol('rmcol-pb',this)\">Private Bool</span>"
+    sb << "<span id='rmtoggle-rmcol-lastrun'  class='${btnColLastRun}'  data-pref-key='hideColLastRun' onclick=\"toggleRmCol('rmcol-lastrun',this)\">Last Run</span>"
     sb << "&nbsp;&nbsp;<b>Filter:</b>&nbsp;"
-    sb << "<input id='rmname-filter' type='text' class='rmname-filter' placeholder='Rule name (* and ? wildcards)' oninput='applyRmRowFilters()' style='width:220px;'>"
+    sb << "<input id='rmname-filter' type='text' class='rmname-filter' placeholder='Rule name (* and ? wildcards)' oninput='applyRmRowFilters()' style='width:230px;'>"
     sb << "</div>"
 
     sb << "<table id='rmlog_table' class='rmlogcheck'><thead><tr>"
@@ -1840,9 +1848,9 @@ String buildReportHtml(List<Map> rows) {
     sb << "<th onclick=\"sortRmLogTable('rmlog_table',2)\" class='center rmcol-apptype'>App Type</th>"
     sb << "<th onclick=\"sortRmLogTable('rmlog_table',3)\" class='center rmcol-disabled'>Disabled</th>"
     sb << "<th onclick=\"sortRmLogTable('rmlog_table',4)\" class='center rmcol-paused'>Paused</th>"
-    sb << "<th onclick=\"sortRmLogTable('rmlog_table',5)\" class='center rmcol-actions'>Actions</th>"
-    sb << "<th onclick=\"sortRmLogTable('rmlog_table',6)\" class='center rmcol-events'>Events</th>"
-    sb << "<th onclick=\"sortRmLogTable('rmlog_table',7)\" class='center rmcol-triggers'>Triggers</th>"
+    sb << "<th onclick=\"sortRmLogTable('rmlog_table',5)\" class='center rmcol-events'>Events</th>"
+    sb << "<th onclick=\"sortRmLogTable('rmlog_table',6)\" class='center rmcol-triggers'>Triggers</th>"
+    sb << "<th onclick=\"sortRmLogTable('rmlog_table',7)\" class='center rmcol-actions'>Actions</th>"
     sb << "<th onclick=\"sortRmLogTable('rmlog_table',8)\" class='center rmcol-pb'>Private Bool</th>"
     sb << "<th onclick=\"sortRmLogTable('rmlog_table',9)\" class='center rmcol-lastrun'>Last Run</th>"
     sb << "</tr></thead><tbody>"
@@ -1923,7 +1931,6 @@ String buildReportHtml(List<Map> rows) {
         sb << "<td class='center rmcol-apptype' data-sort='${appType}'>${appType}</td>"
         sb << "<td class='center rmcol-disabled rmlog-clickable' data-sort='${r.disabled ? '1' : '0'}' data-rule-id='${id}' data-on='${r.disabled as Boolean}' onclick='rmToggleDisabled(this)'>${disabledFmt}</td>"
         sb << "<td class='center rmcol-paused rmlog-clickable'   data-sort='${r.paused   ? '1' : '0'}' data-rule-id='${id}' data-on='${r.paused   as Boolean}' onclick='rmTogglePaused(this)'>${pausedFmt}</td>"
-        sb << clickableTd("rmcol-actions",  r.actionsField  as String, actionsFieldType,  "Actions",  r.actionsOn  as Boolean, r.actionsOn  ? "1" : "0", actionsFmt)
         // BC rules have no Events logging — render a non-clickable "—" cell instead
         if (isBC) {
             sb << "<td class='center rmcol-events' data-sort=''><span style='color:#999;'>—</span></td>"
@@ -1931,6 +1938,7 @@ String buildReportHtml(List<Map> rows) {
             sb << clickableTd("rmcol-events", r.eventsField as String, eventsFieldType, "Events", r.eventsOn as Boolean, r.eventsOn ? "1" : "0", eventsFmt)
         }
         sb << clickableTd("rmcol-triggers", r.triggersField as String, triggersFieldType, "Triggers", r.triggersOn as Boolean, r.triggersOn ? "1" : "0", triggersFmt)
+        sb << clickableTd("rmcol-actions",  r.actionsField  as String, actionsFieldType,  "Actions",  r.actionsOn  as Boolean, r.actionsOn  ? "1" : "0", actionsFmt)
         sb << pbTd
         sb << "<td class='center rmcol-lastrun' data-sort='${lastRun}'>${lastRun}</td>"
         sb << "</tr>"
@@ -2021,6 +2029,7 @@ function toggleBiRowFilter(btn) {
     var hiding = btn.className.indexOf('hidden-col') === -1;
     btn.className = hiding ? 'rmcol-btn hidden-col' : 'rmcol-btn';
     applyBiRowFilters();
+    persistPref(btn.dataset.prefKey, String(hiding));
 }
 </script>'''
 
@@ -2037,18 +2046,18 @@ function toggleBiRowFilter(btn) {
 
     sb << "<div class='rmcol-toggle-bar'>"
     sb << "<b>Hide rows:</b>&nbsp;"
-    sb << "<span id='bitoggle-birow-disabled' class='${btnBiRowDisabled}' onclick=\"toggleBiRowFilter(this)\">Disabled rules</span>"
-    sb << "<span id='bitoggle-birow-paused'   class='${btnBiRowPaused}'   onclick=\"toggleBiRowFilter(this)\">Paused rules</span>"
-    sb << "<span id='bitoggle-birow-logoff'   class='${btnBiRowLogOff}'   onclick=\"toggleBiRowFilter(this)\">Logging OFF</span>"
+    sb << "<span id='bitoggle-birow-disabled' class='${btnBiRowDisabled}' data-pref-key='hideBiRowDisabled' onclick=\"toggleBiRowFilter(this)\">Disabled rules</span>"
+    sb << "<span id='bitoggle-birow-paused'   class='${btnBiRowPaused}'   data-pref-key='hideBiRowPaused' onclick=\"toggleBiRowFilter(this)\">Paused rules</span>"
+    sb << "<span id='bitoggle-birow-logoff'   class='${btnBiRowLogOff}'   data-pref-key='hideBiRowLogOff' onclick=\"toggleBiRowFilter(this)\">Logging OFF</span>"
     sb << "&nbsp;&nbsp;<b>Hide columns:</b>&nbsp;"
-    sb << "<span id='bitoggle-bicol-ruleid'   class='${btnBiColRuleId}'   onclick=\"toggleRmCol('bicol-ruleid',this)\">Rule ID</span>"
-    sb << "<span id='bitoggle-bicol-apptype'  class='${btnBiColAppType}'  onclick=\"toggleRmCol('bicol-apptype',this)\">App Type</span>"
-    sb << "<span id='bitoggle-bicol-disabled' class='${btnBiColDisabled}' onclick=\"toggleRmCol('bicol-disabled',this)\">Disabled</span>"
-    sb << "<span id='bitoggle-bicol-paused'   class='${btnBiColPaused}'   onclick=\"toggleRmCol('bicol-paused',this)\">Paused</span>"
-    sb << "<span id='bitoggle-bicol-logging'  class='${btnBiColLogging}'  onclick=\"toggleRmCol('bicol-logging',this)\">Logging</span>"
-    sb << "<span id='bitoggle-bicol-lastrun'  class='${btnBiColLastRun}'  onclick=\"toggleRmCol('bicol-lastrun',this)\">Last Run</span>"
+    sb << "<span id='bitoggle-bicol-ruleid'   class='${btnBiColRuleId}'   data-pref-key='hideBiColRuleId' onclick=\"toggleRmCol('bicol-ruleid',this)\">Rule ID</span>"
+    sb << "<span id='bitoggle-bicol-apptype'  class='${btnBiColAppType}'  data-pref-key='hideBiColAppType' onclick=\"toggleRmCol('bicol-apptype',this)\">App Type</span>"
+    sb << "<span id='bitoggle-bicol-disabled' class='${btnBiColDisabled}' data-pref-key='hideBiColDisabled' onclick=\"toggleRmCol('bicol-disabled',this)\">Disabled</span>"
+    sb << "<span id='bitoggle-bicol-paused'   class='${btnBiColPaused}'   data-pref-key='hideBiColPaused' onclick=\"toggleRmCol('bicol-paused',this)\">Paused</span>"
+    sb << "<span id='bitoggle-bicol-logging'  class='${btnBiColLogging}'  data-pref-key='hideBiColLogging' onclick=\"toggleRmCol('bicol-logging',this)\">Logging</span>"
+    sb << "<span id='bitoggle-bicol-lastrun'  class='${btnBiColLastRun}'  data-pref-key='hideBiColLastRun' onclick=\"toggleRmCol('bicol-lastrun',this)\">Last Run</span>"
     sb << "&nbsp;&nbsp;<b>Filter:</b>&nbsp;"
-    sb << "<input id='biname-filter' type='text' class='rmname-filter' placeholder='Name (* and ? wildcards)' oninput='applyBiRowFilters()' style='width:220px;'>"
+    sb << "<input id='biname-filter' type='text' class='rmname-filter' placeholder='Name (* and ? wildcards)' oninput='applyBiRowFilters()' style='width:230px;'>"
     sb << "</div>"
 
     sb << "<table id='builtin_table' class='rmlogcheck'><thead><tr>"
