@@ -55,7 +55,7 @@ import groovy.transform.CompileStatic
 @Field static Long      configureLastProgressMs = 0L
 
 definition(
-    name:        "Private Boolean Manager v. 1.43",
+    name:        "Private Boolean Manager v. 1.47",
     namespace:   "johnland",
     author:      "John Land & AI",
     description: "Scans RM/BC rules, reports Private Boolean state and Last Run time, and sets Private Boolean values in bulk or from the report table.",
@@ -89,12 +89,14 @@ mappings {
 // ============================================================
 
 void installed() {
+    if (debugEnable) log.debug "PBM: installed — ${app.name}"
     checkOAuth()           // auto-enable OAuth and create token on first install
     initialize()
     // No auto-scan on install: user must click a scan button.
 }
 
 void updated() {
+    if (debugEnable) log.debug "PBM: updated — label: '${app.label}', scan active: ${currentScanId != null || configureScanId != null}"
     // Apply any rename entered in the Controls section.
     // Must happen before initialize() so the new label is visible immediately.
     String newLabel = settings.vAppLabel?.trim()
@@ -146,7 +148,7 @@ void initialize() {
             String h = t.format("HH", location.timeZone)
             String m = t.format("mm", location.timeZone)
             schedule("0 ${m} ${h} * * ?", "scheduledApplyPB")
-            log.info "PBM: Daily PB apply scheduled at ${h}:${m}"
+            if (debugEnable) log.debug "PBM: Daily PB apply scheduled at ${h}:${m}"
         } catch (Exception e) {
             log.warn "PBM: Could not create daily schedule — ${e.message}"
         }
@@ -156,10 +158,17 @@ void initialize() {
         try {
             int mins = settings.vScheduleIntervalMins as int
             schedule("0 0/${mins} * * * ?", "scheduledApplyPBInterval")
-            log.info "PBM: Interval PB apply scheduled every ${mins} minute(s)"
+            if (debugEnable) log.debug "PBM: Interval PB apply scheduled every ${mins} minute(s)"
         } catch (Exception e) {
             log.warn "PBM: Could not create interval schedule — ${e.message}"
         }
+    }
+
+    // Subscribe to hub reboot event so we can apply PB changes after restart.
+    unsubscribe()
+    if (settings.vRebootApplyEnabled) {
+        subscribe(location, "systemStart", handleSystemStart)
+        if (debugEnable) log.debug "PBM: Subscribed to systemStart for post-reboot PB apply"
     }
 
     if (debugEnable) {
@@ -219,6 +228,19 @@ void scheduledApplyPB() {
 // types share the same logic and update the same last-run state.
 void scheduledApplyPBInterval() { scheduledApplyPB() }
 
+// Fires when the hub finishes booting.  Applies the saved PB checkbox state
+// after the configured delay (0 = immediately, i.e. as soon as the app runs).
+void handleSystemStart(evt) {
+    int delaySecs = ((settings.vRebootApplyDelayMins ?: 0) as int) * 60
+    if (delaySecs > 0) {
+        log.info "PBM: Hub reboot detected — PB apply in ${settings.vRebootApplyDelayMins} minute(s)"
+        runIn(delaySecs, "scheduledApplyPB")
+    } else {
+        log.info "PBM: Hub reboot detected — applying PB changes now"
+        scheduledApplyPB()
+    }
+}
+
 // Re-render the report HTML using rows cached in state.scanRowsJson.
 // Called from updated() so display-setting changes apply on Done without a rescan.
 void reRenderReportIfCached() {
@@ -226,7 +248,7 @@ void reRenderReportIfCached() {
     try {
         List<Map> rows = new groovy.json.JsonSlurper().parseText(state.scanRowsJson) as List<Map>
         state.reportHtml = buildReportHtml(rows)
-        log.info "RM/BC report re-rendered from cached scan data (${rows.size()} rules)"
+        if (debugEnable) log.debug "PBM: report re-rendered from cached scan data (${rows.size()} rules)"
     } catch (Exception e) {
         log.warn "reRenderReportIfCached: could not re-render — ${e.message}"
     }
@@ -506,14 +528,19 @@ def mainPage() {
             paragraph "<br><b>Scheduled PB Apply</b>"
             paragraph "<small>Applies the current Set TRUE / Set FALSE checkbox selections on the chosen schedule(s). Both options can be active simultaneously. Clear a field and press Done to disable that schedule.</small>"
             input "vScheduleTime",        "time", title: "Apply PB changes daily at:",  required: false
+            paragraph "<br>"
             input "vScheduleIntervalMins", "enum", title: "Apply PB changes every:",     required: false,
                 options: ["1": "Every minute", "2": "Every 2 minutes", "5": "Every 5 minutes",
                           "10": "Every 10 minutes", "15": "Every 15 minutes",
                           "20": "Every 20 minutes", "30": "Every 30 minutes", "60": "Every hour"]
+            paragraph "<br>"
+            input "vRebootApplyEnabled",    "bool",   title: "Apply PB changes after hub reboot", defaultValue: false
+            input "vRebootApplyDelayMins",  "number", title: "Delay after reboot (minutes, 0 = immediately)",
+                required: false, defaultValue: 0, range: "0..60"
             if (state.scheduledApplyLastRun) {
                 String schedResult = state.scheduledApplyResult ?: ""
                 paragraph "<small><i>Last scheduled run: ${state.scheduledApplyLastRun}${schedResult ? " — ${schedResult}" : ""}</i></small>"
-            } else if (settings.vScheduleTime || settings.vScheduleIntervalMins) {
+            } else if (settings.vScheduleTime || settings.vScheduleIntervalMins || settings.vRebootApplyEnabled) {
                 paragraph "<small><i>Scheduled — has not run yet.</i></small>"
             }
 
@@ -613,16 +640,26 @@ def mainPage() {
                 <br>
                 <b>Controls section</b><br>
                 App instance rename, printable HTML report, CSV export, debug logging toggle,
-                and scheduled daily PB apply.
+                and scheduled PB apply (daily, interval, and/or post-reboot).
                 <br>
                 <b>Scheduled PB Apply</b><br>
-                Set a time in the Controls section and click <b>Done</b>. Each day at that time the
-                app applies whichever Set TRUE / Set FALSE checkboxes are currently saved
-                (the same state used by <b>Apply selected PB changes</b>). The last run
-                timestamp and TRUE/FALSE counts appear below the time field after the first
-                run. Clear the time field and click <b>Done</b> to remove the schedule. Changes are
-                fire-and-forget, with the same caveats as the manual apply (i.e., not 
-                verified by re-reading the rule state).
+                Three independent schedule options are available in the Controls section:
+                <b>daily at a specific time</b>, <b>every N minutes</b> (1, 2, 5, 10, 15, 20, 30,
+                or 60), and <b>after hub reboot</b> (with an optional delay of 0–60 minutes).
+                Any combination can be active at the same time. Each applies whichever
+                Set TRUE / Set FALSE checkboxes are currently saved — the same state used by
+                <b>Apply selected PB changes</b>. The last run timestamp and TRUE/FALSE counts
+                are shown after the first run. Clear or disable a schedule and click <b>Done</b>
+                to remove it. Scheduled changes are fire-and-forget (not verified by
+                re-reading the affected rules).
+                <br>
+                <b>Debug logging</b><br>
+                When enabled, logs per-rule Phase 1 scan results (rule name, ID, app type,
+                Private Boolean value), per-rule Phase 2 PB-use detection results, Phase 2
+                heartbeat resets, single-rule PB toggle confirmations, install/updated
+                lifecycle events, rule-discovery count from <code>/hub2/appsList</code>,
+                schedule and subscription setup confirmations on each Done press, and
+                re-render-from-cache confirmations. Auto-disables after 30 minutes.
                 <br>
                 <b>WARNING</b><br>
                 This app uses Hubitat local/internal JSON endpoints that are not a formal public
@@ -1233,6 +1270,7 @@ List<Map> getRuleMachineRuleApps() {
         log.warn state.lastError
     }
 
+    if (debugEnable) log.debug "PBM: discovered ${rules.size()} RM/BC rules from /hub2/appsList"
     return rules.sort { it.name?.toLowerCase() ?: "" }
 }
 
