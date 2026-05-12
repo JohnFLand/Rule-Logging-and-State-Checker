@@ -55,7 +55,7 @@ import groovy.transform.CompileStatic
 @Field static Long      configureLastProgressMs = 0L
 
 definition(
-    name:        "Private Boolean Manager v. 1.42",
+    name:        "Private Boolean Manager v. 1.43",
     namespace:   "johnland",
     author:      "John Land & AI",
     description: "Scans RM/BC rules, reports Private Boolean state and Last Run time, and sets Private Boolean values in bulk or from the report table.",
@@ -136,8 +136,10 @@ void initialize() {
     configureInflight       = [:]
     configureLastProgressMs = 0L
 
-    // Set or clear the daily PB apply schedule based on the vScheduleTime setting
+    // Set or clear the PB apply schedules (daily and/or interval).
     unschedule("scheduledApplyPB")
+    unschedule("scheduledApplyPBInterval")
+
     if (settings.vScheduleTime) {
         try {
             def t = timeToday(settings.vScheduleTime, location.timeZone)
@@ -146,7 +148,17 @@ void initialize() {
             schedule("0 ${m} ${h} * * ?", "scheduledApplyPB")
             log.info "PBM: Daily PB apply scheduled at ${h}:${m}"
         } catch (Exception e) {
-            log.warn "PBM: Could not create schedule — ${e.message}"
+            log.warn "PBM: Could not create daily schedule — ${e.message}"
+        }
+    }
+
+    if (settings.vScheduleIntervalMins) {
+        try {
+            int mins = settings.vScheduleIntervalMins as int
+            schedule("0 0/${mins} * * * ?", "scheduledApplyPBInterval")
+            log.info "PBM: Interval PB apply scheduled every ${mins} minute(s)"
+        } catch (Exception e) {
+            log.warn "PBM: Could not create interval schedule — ${e.message}"
         }
     }
 
@@ -202,6 +214,10 @@ void scheduledApplyPB() {
     state.scheduledApplyResult  = "TRUE: ${trueIds.size()}, FALSE: ${falseIds.size()}"
     log.info "PBM: Scheduled PB apply complete — TRUE: ${trueIds.size()}, FALSE: ${falseIds.size()}"
 }
+
+// Interval-triggered wrapper — delegates to scheduledApplyPB() so both schedule
+// types share the same logic and update the same last-run state.
+void scheduledApplyPBInterval() { scheduledApplyPB() }
 
 // Re-render the report HTML using rows cached in state.scanRowsJson.
 // Called from updated() so display-setting changes apply on Done without a rescan.
@@ -488,12 +504,16 @@ def mainPage() {
             // ── Debug logging (last) ──────────────────────────────────────
             // ── Scheduled PB apply ───────────────────────────────────────
             paragraph "<br><b>Scheduled PB Apply</b>"
-            paragraph "<small>Applies the current Set TRUE / Set FALSE checkbox selections at the specified time every day. Configure the checkboxes in the table, then set a time here and press Done to activate the schedule. Clear the time field and press Done to remove it.</small>"
-            input "vScheduleTime", "time", title: "Apply PB changes daily at:", required: false
+            paragraph "<small>Applies the current Set TRUE / Set FALSE checkbox selections on the chosen schedule(s). Both options can be active simultaneously. Clear a field and press Done to disable that schedule.</small>"
+            input "vScheduleTime",        "time", title: "Apply PB changes daily at:",  required: false
+            input "vScheduleIntervalMins", "enum", title: "Apply PB changes every:",     required: false,
+                options: ["1": "Every minute", "2": "Every 2 minutes", "5": "Every 5 minutes",
+                          "10": "Every 10 minutes", "15": "Every 15 minutes",
+                          "20": "Every 20 minutes", "30": "Every 30 minutes", "60": "Every hour"]
             if (state.scheduledApplyLastRun) {
                 String schedResult = state.scheduledApplyResult ?: ""
                 paragraph "<small><i>Last scheduled run: ${state.scheduledApplyLastRun}${schedResult ? " — ${schedResult}" : ""}</i></small>"
-            } else if (settings.vScheduleTime) {
+            } else if (settings.vScheduleTime || settings.vScheduleIntervalMins) {
                 paragraph "<small><i>Scheduled — has not run yet.</i></small>"
             }
 
