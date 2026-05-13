@@ -19,80 +19,7 @@
  *  - Private Boolean toggling uses RMUtils.sendAction() with RM version "5.0".
  *    Rules from earlier RM versions will display PB state but the toggle may not work.
  *
- *  v1.60 — New Controls section: app rename, debug toggle, printable HTML reports,
- *           and CSV export for each table (all via OAuth endpoints)
- *  v1.59 — Events/Triggers/Actions column order to match RM UI; persistent Hide table
- *           toggles added below each table; Notes updated
- *  v1.58 — Toggle-bar buttons now persist via /setpref OAuth endpoint — no Done press
- *           needed for row/column hide preferences; getPref() reads state.userPrefs
- *           with fallback to settings.* for backward compatibility
- *  v1.57 — buildSharedReportAssets() extracted so built-in table works when RM/BC list is
- *           empty; PB data-sort corrected to 2/1; empty-scan resets bi* counts;
- *           initialize() declared void; stale "Scan Rules" UI text updated
- *  v1.56 — Code review fixes: remove false-positive contains() from valueLooks*;
- *           fd.append(deviceList) + sentinel; null→'' for non-collection fields;
- *           dateFormat captured in extractLastRun; ruleId as Long for RMUtils;
- *           @CompileStatic on pure methods; detectRuleLogging log gated on debugEnable;
- *           def→void for lifecycle methods; named constants for magic numbers;
- *           redundant sort removed from buildBuiltinReportHtml; typed iteration;
- *           button label updated to "Scan All Rules"
- *  v1.55 — Table show/hide toggles moved into their respective Custom Settings sections;
- *           spacing added between RM/BC and Built-in sections; Notes and README updated
- *  v1.54 — Both tables now collapsible sections with persistent show/hide state;
- *           Custom RM/BC settings section moved below RM table; Notes updated with
- *           Pause label-refresh and table collapse documentation
- *  v1.53 — No-op save after built-in app pause toggle forces label update server-side
- *           so Automations page shows (Paused) without needing to open/close the rule
- *  v1.52 — Fixed click function of "Pause" in 2nd table, made tables collapsible
- *  v1.51 - Cosmetic changes, updated internal and external documentation
- *  v1.50 — Second table now also covers Simple Automation Rules, Basic Button Controller,
- *           and Motion Lighting (all confirmed to use a boolean "logging" field)
- *  v1.49 — Fixed a regression to once again make Paused cells in the 2nd table clickable.
- *  v1.48 — Self-enabling OAuth: app now automatically enables OAuth on first install via
- *           /hub2/userAppTypes + /app/ajax/code + /app/edit/update, so the user never
- *           needs to visit Apps Code to enable OAuth manually
- *  v1.45 — Hide rows/columns and filter field added to Built-in App Logging table;
- *           Custom Row and Column Settings split into two separate sections
- *  v1.44 — Wildcard name filter field added to RM/BC table toggle bar;
- *           Second table added for built-in apps (Notifications, Basic Rules, Room Lighting)
- *           that support a boolean Logging setting
- *  v1.43 — App Type column is now hideable via toggle bar and Custom Column Settings
- *  v1.42 — OAuth token now created automatically on every page open (no Generate Token button needed);
- *           re-opening the app after enabling OAuth in Apps Code is sufficient
- *  v1.41 — Fix "Unexpected end of JSON input" on PB toggle: renderJson() now returns the render
- *           result so Hubitat sends a response body from the OAuth endpoint; JS also reads
- *           response as text before parsing so empty-body errors are reported clearly
- *  v1.40 — BC rules show — in Events column (BC has no Events logging option);
- *           anyOn calculation for BC rules excludes Events so No logging ON filter is correct
- *  v1.39 — Three pre-release fixes:
- *           - rmToggleLogging() now updates rmrow-logoff class and calls applyRmRowFilters()
- *             so No logging ON row filter stays correct after toggling Actions/Events/Triggers
- *           - sortRmLogTable() uses strict numeric pattern test so Last Run dates sort
- *             lexicographically as timestamps rather than by year only
- *           - PB sort values: unknown=0, false=1, true=2 (distinct three-way sort)
- *  v1.38 — Multiple robustness fixes based on pre-release review:
- *           - PB endpoint validates id (digits-only) and value (true/false only)
- *           - renderJson() helper replaces hand-built JSON strings in endpoint responses
- *           - PB endpoint URL and rule configure links are now relative (no hub IP)
- *           - JS endpoint variable uses JsonOutput.toJson() to avoid escaping surprises
- *           - extractPrivateBool() returns null when field is absent (renders as —)
- *           - Row filter overlap fixed: toggling one row filter no longer reveals rows
- *             that should stay hidden by another active filter
- *           - rmToggleDisabled/rmTogglePaused now re-apply all row filters after updating
- *             row classes, so multi-filter state stays consistent after in-place toggles
- *           - runIn("logsOff") quoted correctly
- *           - unschedule("finalizeScanTimeout") added to initialize()
- *           - updated() emits a "scan cancelled" message when Done is pressed mid-scan
- *           - Dead variable pbTrueCount removed
- *           - @Field static comment softened — statics are for performance, not a guarantee
- *           - Notes: added snapshot caveat (counts reflect last scan, not in-place toggles)
- *           - Column hide init script fixed (1.37): uses querySelectorAll not click()
- *  v1.36 — Display settings now apply instantly on Done (no rescan needed); scan rows cached in state
- *  v1.35 — Added Custom Row and Column Settings section (persistent hide/show preferences)
- *  v1.34 — Documented OAuth one-time setup requirement in Notes and Private Boolean Toggle section
- *  v1.33 — Added token status indicator and manual Generate Token button to diagnose/fix OAuth
- *  v1.32 — Private Boolean column is now clickable (toggles TRUE/FALSE via local OAuth endpoint)
- *  v1.31 — Added Private Boolean column sourced from appState name="private"
+ *  See README.md for version history.
  */
 
 import hubitat.helper.RMUtils
@@ -113,8 +40,8 @@ import groovy.transform.CompileStatic
 @Field static Map       scanPartialResults = null   // keyed by ruleId String; holds both RM/BC and builtin rows
 
 definition(
-    name:        "Rule Logging and State Checker 1.60",
-    namespace:   "johnland",
+    name:        "Rule Logging and State Checker 1.63",
+    namespace:   "John Land",
     author:      "John Land & AI",
     description: "Reports logging status and Disabled, Paused, and Private Boolean states for Hubitat rules.",
     category:    "Utility",
@@ -123,7 +50,7 @@ definition(
     oauth:          true,
     iconUrl:   '',
     iconX2Url: '',
-    importUrl: "https://raw.githubusercontent.com/JohnFLand/Rule-Logging-and-State-Checker/refs/heads/main/Rule%20Logging%20and%20State%20Checker.groovy"
+    importUrl: "https://raw.githubusercontent.com/JohnFLand/Rule-Logging-and-State-Checker/refs/heads/main/Rule_Logging_Status_Checker.groovy"
 )
 
 preferences {
@@ -172,11 +99,6 @@ void initialize() {
     scanPartialResults = null
 
     unschedule("finalizeScanTimeout")
-
-    // Clean up legacy state/atomicState keys from older versions
-    ["scanRuleQueue", "scanPartialRows", "reportRows"].each { state.remove(it) }
-    atomicState.currentScanId = null
-    atomicState.scanStartMs   = null
 
     if (debugEnable) {
         runIn(LOGS_OFF_DELAY_SECS, "logsOff")
@@ -384,13 +306,15 @@ def mainPage() {
         boolean rmHidden = (settings.tableRmHidden != null) ? (settings.tableRmHidden as boolean) : false
         section("Rule Machine and Button Controller Rule State", hideable: true, hidden: rmHidden) {
             if (state.scannedCount != null) {
-                paragraph "<div style='margin:0;padding:0;line-height:1.5;font-size:1em;'>" +
-                          "<b>Rules scanned:</b> ${state.scannedCount ?: 0}; " +
-                          "<b>Any logging ON:</b> ${state.anyLoggingOnCount ?: 0}; " +
-                          "<b>Events:</b> ${state.eventsOnCount ?: 0}; " +
-                          "<b>Triggers:</b> ${state.triggersOnCount ?: 0}; " +
-                          "<b>Actions:</b> ${state.actionsOnCount ?: 0}; " +
-                          "<b>Private Bool TRUE:</b> ${state.privateBoolOnCount ?: 0}" +
+                paragraph "<div id='rmstats' style='margin:0;padding:0;line-height:1.5;font-size:1em;'>" +
+                          "<b>Rules scanned:</b> <span id='rmstat-scanned'>${state.scannedCount ?: 0}</span>; " +
+                          "<b>Any logging ON:</b> <span id='rmstat-anylogging'>${state.anyLoggingOnCount ?: 0}</span>; " +
+                          "<b>Events:</b> <span id='rmstat-events'>${state.eventsOnCount ?: 0}</span>; " +
+                          "<b>Triggers:</b> <span id='rmstat-triggers'>${state.triggersOnCount ?: 0}</span>; " +
+                          "<b>Actions:</b> <span id='rmstat-actions'>${state.actionsOnCount ?: 0}</span>; " +
+                          "<b>Private Bool TRUE:</b> <span id='rmstat-pb'>${state.privateBoolOnCount ?: 0}</span>; " +
+                          "<b>Disabled:</b> <span id='rmstat-disabled'>${state.disabledCount ?: 0}</span>; " +
+                          "<b>Paused:</b> <span id='rmstat-paused'>${state.pausedCount ?: 0}</span>" +
                           "<br><br></div>"
             }
             paragraph(state.reportHtml ?: "Click <b>Scan All Rules</b> to begin.")
@@ -406,14 +330,17 @@ def mainPage() {
         section("Built-in App Rule State", hideable: true, hidden: biHidden) {
             paragraph "<small style='color:#555;'>for Hubitat built-in apps (Notifications, Basic Rules, Simple Automation Rules, Basic Button Controller, Room Lighting, Motion Lighting) that support a Logging setting</small>"
             if (state.biScannedCount != null) {
-                String biStats = "<div style='margin:0;padding:0;line-height:1.5;font-size:1em;'>" +
-                    "<b>Rules scanned:</b> ${state.biScannedCount}; " +
-                    "<b>Logging ON:</b> <span style='color:red;font-weight:bold;'>${state.biLogOnCount ?: 0}</span>; " +
-                    "<b>Logging OFF:</b> <span style='color:green;'>${state.biLogOffCount ?: 0}</span>"
-                if ((state.biLogUnknownCount ?: 0) > 0) {
-                    biStats += "; <b>Unknown:</b> <span style='color:#999;'>${state.biLogUnknownCount}</span>"
-                }
-                biStats += "<br><br></div>"
+                String unknownStyle = (state.biLogUnknownCount ?: 0) > 0 ? '' : " style='display:none'"
+                String biStats = "<div id='bistats' style='margin:0;padding:0;line-height:1.5;font-size:1em;'>" +
+                    "<b>Rules scanned:</b> <span id='bistat-scanned'>${state.biScannedCount}</span>; " +
+                    "<b>Logging ON:</b> <span id='bistat-logon' style='color:red;font-weight:bold;'>${state.biLogOnCount ?: 0}</span>; " +
+                    "<b>Logging OFF:</b> <span id='bistat-logoff' style='color:green;'>${state.biLogOffCount ?: 0}</span>" +
+                    "<span id='bistat-unknown-wrap'${unknownStyle}>" +
+                    "; <b>Unknown:</b> <span id='bistat-unknown' style='color:#999;'>${state.biLogUnknownCount ?: 0}</span>" +
+                    "</span>; " +
+                    "<b>Disabled:</b> <span id='bistat-disabled'>${state.biDisabledCount ?: 0}</span>; " +
+                    "<b>Paused:</b> <span id='bistat-paused'>${state.biPausedCount ?: 0}</span>" +
+                    "<br><br></div>"
                 paragraph biStats
             }
             if (state.builtinReportHtml) paragraph(state.builtinReportHtml)
@@ -547,8 +474,10 @@ def mainPage() {
                 <br>
                 <b>Summary counts</b><br>
                 Shown as part of each table's heading area. Counts are computed from the most recent
-                scan. Toggling cells in-place updates cells immediately but does not refresh the
-                summary — run <b>Scan All Rules</b> again to update counts and cached row data.
+                scan. Toggling any cell in-place updates both the cell and the relevant summary
+                count immediately — Events, Triggers, Actions, Private Boolean, Disabled, and Paused
+                all reflect in-place changes without a rescan. Run <b>Scan All Rules</b> again to
+                recompute all counts from a fresh scan.
                 <br>
                 <b>Controls section</b><br>
                 The collapsible <b>Controls</b> section (above Notes) provides four functions:<br>
@@ -613,14 +542,19 @@ void findLoggingRules() {
         state.triggersOnCount    = 0
         state.anyLoggingOnCount  = 0
         state.privateBoolOnCount = 0
+        state.disabledCount      = 0
+        state.pausedCount        = 0
         state.lastScan           = new Date().format("yyyy-MM-dd HH:mm:ss", location.timeZone)
         state.scanDuration       = "00:00"
         state.biScannedCount     = 0
         state.biLogOnCount       = 0
         state.biLogOffCount      = 0
         state.biLogUnknownCount  = 0
+        state.biDisabledCount    = 0
+        state.biPausedCount      = 0
         state.builtinReportHtml  = ""
         state.reportHtml         = "<p>No Rule Machine, Button Controller, or supported built-in apps found.</p>"
+        state.scanStatus         = null
         return
     }
 
@@ -817,6 +751,8 @@ void finalizeScan() {
     Integer triggersOnCount    = rmRows.count { it.triggersOn  } as Integer
     Integer anyLoggingOnCount  = rmRows.count { (it.actionsOn || it.eventsOn || it.triggersOn) } as Integer
     Integer privateBoolOnCount = rmRows.count { it.privateBool == true } as Integer
+    Integer disabledCount      = rmRows.count { it.disabled == true } as Integer
+    Integer pausedCount        = rmRows.count { it.paused   == true } as Integer
 
     state.scannedCount        = rmRows.size()
     state.actionsOnCount      = actionsOnCount
@@ -824,6 +760,8 @@ void finalizeScan() {
     state.triggersOnCount     = triggersOnCount
     state.anyLoggingOnCount   = anyLoggingOnCount
     state.privateBoolOnCount  = privateBoolOnCount
+    state.disabledCount       = disabledCount
+    state.pausedCount         = pausedCount
     state.lastScan            = new Date().format("yyyy-MM-dd HH:mm:ss", location.timeZone)
     state.scanDuration        = formatScanDuration((now() as Long) - (scanStartMs ?: now() as Long))
 
@@ -841,6 +779,8 @@ void finalizeScan() {
     state.biLogOnCount        = builtinRows.count { it.logging == true  } as Integer
     state.biLogOffCount       = builtinRows.count { it.logging == false } as Integer
     state.biLogUnknownCount   = builtinRows.count { it.logging == null  } as Integer
+    state.biDisabledCount     = builtinRows.count { it.disabled == true } as Integer
+    state.biPausedCount       = builtinRows.count { it.paused   == true } as Integer
 
     state.reportHtml          = buildReportHtml(rmRows)
     state.builtinReportHtml   = buildBuiltinReportHtml(builtinRows)
@@ -1056,18 +996,17 @@ String getBuiltinAppType(String type, String name, String label = "") {
 // Called by toggle-bar buttons via fetch() to persist their state without a
 // page reload. Values are stored in state.userPrefs and read via getPref().
 def handleSetPrefEndpoint() {
-    if (!state.accessToken) { render contentType: "application/json", data: '{"status":"error","message":"OAuth not active"}'; return }
+    if (!state.accessToken) { return renderJson([status: "error", message: "OAuth not active"]) }
     String key   = params?.key?.toString()
     String value = params?.value?.toString()
-    if (!key) { render contentType: "application/json", data: '{"status":"error","message":"missing key"}'; return }
+    if (!key) { return renderJson([status: "error", message: "missing key"]) }
     Map prefs = (state.userPrefs ?: [:]) as Map
     prefs[key] = value
     state.userPrefs = prefs
-    render contentType: "application/json", data: '{"status":"success"}'
+    return renderJson([status: "success"])
 }
 
-// Read a toggle-bar preference. Priority: state.userPrefs (set by JS click) →
-// settings.* (legacy Done-saved value) → defaultVal.
+// Read a toggle-bar preference from state.userPrefs; returns defaultVal if not set.
 boolean getPref(String key, boolean defaultVal = false) {
     Map prefs = (state.userPrefs ?: [:]) as Map
     if (prefs.containsKey(key)) return prefs[key]?.toString() == "true"
@@ -1078,21 +1017,16 @@ boolean getPref(String key, boolean defaultVal = false) {
 // ============================================================
 // Report endpoint — printable HTML and CSV exports
 // ============================================================
-// GET /apps/api/{id}/report?access_token={token}&table={rm|builtin}&format={html|csv}
-// Opens a self-contained printable HTML page (format=html) or triggers a CSV
-// download (format=csv). Both formats use the cached scan rows in state so no
-// rescan is needed. The endpoint is protected by the same OAuth token as /setPB.
+// GET /apps/api/{id}/report?access_token={token}&table={rm|builtin}
+// Opens a self-contained printable HTML page using cached scan rows.
+// CSV downloads use the dedicated /RM-BC_Rules.csv and /Built-In_Rules.csv endpoints.
 
 def handleReportEndpoint() {
     if (!state.accessToken) {
         render contentType: "text/plain", data: "OAuth not active — re-open the app to retry."
         return
     }
-    String table  = (params?.table  ?: "rm").toString().toLowerCase()
-    String format = (params?.format ?: "html").toString().toLowerCase()
-
-    // CSV downloads use dedicated named paths (/RM-BC_Rules.csv, /Built-In_Rules.csv)
-    // so the browser derives the filename from the URL — no Content-Disposition header needed.
+    String table = (params?.table ?: "rm").toString().toLowerCase()
     String html = (table == "builtin") ? buildBuiltinPrintHtml() : buildRmPrintHtml()
     render contentType: "text/html; charset=UTF-8", data: html
 }
@@ -1237,7 +1171,7 @@ String buildRmCsv() {
         sb << ",${ev}"
         sb << ",${r.triggersOn == null ? "—" : (r.triggersOn as Boolean) ? "ON" : "OFF"}"
         sb << ",${r.actionsOn  == null ? "—" : (r.actionsOn  as Boolean) ? "ON" : "OFF"}"
-        sb << ",${r.privateBool == null ? "—" : (r.privateBool as Boolean) ? "TRUE" : "false"}"
+        sb << ",${r.privateBool == null ? "—" : (r.privateBool as Boolean) ? "TRUE" : "FALSE"}"
         sb << ",${escapeCsv(r.lastRun)}\n"
     }
     return sb.toString()
@@ -1687,6 +1621,53 @@ function updateRmLogOffClass(tr) {
     else              tr.classList.add('rmrow-logoff');
 }
 
+// Generic helper: adjust a stats span by +1 (increment=true) or -1 (increment=false).
+function adjustStatEl(id, increment) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = (parseInt(el.textContent, 10) || 0) + (increment ? 1 : -1);
+}
+
+// Called after a successful RM/BC logging toggle.
+// Column counts (Events/Triggers/Actions) are adjusted by ±1.
+// anyLogging is recounted directly from the DOM: all tbody cells in the three
+// logging columns that have data-sort="1" are collected, their parent rows
+// deduplicated via a Set, and the resulting count written to the span.
+// At call time td.setAttribute('data-sort', ...) has already been called, so
+// the toggled cell already reflects its new state.
+function updateRmStatsForLogging(tr, td, newOn) {
+    var cls = td.className || '';
+    var isEvents   = cls.indexOf('rmcol-events')   >= 0;
+    var isTriggers = cls.indexOf('rmcol-triggers') >= 0;
+    var isActions  = cls.indexOf('rmcol-actions')  >= 0;
+    if (isEvents)   adjustStatEl('rmstat-events',   newOn);
+    if (isTriggers) adjustStatEl('rmstat-triggers', newOn);
+    if (isActions)  adjustStatEl('rmstat-actions',  newOn);
+    // Update this row's rmrow-logoff class from its current cell state.
+    function cellIsOn(row, colCls) {
+        var c = row.querySelector('.' + colCls);
+        return c && c.getAttribute('data-sort') === '1';
+    }
+    var anyNow = cellIsOn(tr, 'rmcol-events') || cellIsOn(tr, 'rmcol-triggers') || cellIsOn(tr, 'rmcol-actions');
+    if (anyNow) tr.classList.remove('rmrow-logoff');
+    else        tr.classList.add('rmrow-logoff');
+    // Recount anyLogging: unique tbody rows that have at least one logging cell ON.
+    var el = document.getElementById('rmstat-anylogging');
+    if (!el) return;
+    var rowsWithLogging = new Set();
+    ['rmcol-events', 'rmcol-triggers', 'rmcol-actions'].forEach(function(colCls) {
+        document.querySelectorAll('#rmlog_table tbody .' + colCls + '[data-sort="1"]').forEach(function(cell) {
+            var row = cell.closest('tr');
+            if (row) rowsWithLogging.add(row);
+        });
+    });
+    el.textContent = rowsWithLogging.size;
+}
+
+// Called after a successful PB toggle.
+function updateRmStatsForPb(newOn) {
+    adjustStatEl('rmstat-pb', newOn);
+}
+
 function toggleRmRowFilter(btn) {
     var hiding = btn.className.indexOf('hidden-col') === -1;
     btn.className = hiding ? 'rmcol-btn hidden-col' : 'rmcol-btn';
@@ -1783,8 +1764,10 @@ async function rmToggleLogging(td) {
         if (tr && tr.closest('#builtin_table')) {
             updateBiLogOffClass(tr);
             applyBiRowFilters();
+            adjustStatEl('bistat-logon',  newOn);
+            adjustStatEl('bistat-logoff', !newOn);
         } else {
-            updateRmLogOffClass(tr);
+            updateRmStatsForLogging(tr, td, newOn);
             applyRmRowFilters();
         }
     } catch(e) {
@@ -1819,9 +1802,11 @@ async function rmToggleDisabled(td) {
         if (tr && tr.closest('#builtin_table')) {
             if (newOn) tr.classList.add('birow-disabled'); else tr.classList.remove('birow-disabled');
             applyBiRowFilters();
+            adjustStatEl('bistat-disabled', newOn);
         } else {
             if (newOn) tr.classList.add('rmrow-disabled'); else tr.classList.remove('rmrow-disabled');
             applyRmRowFilters();
+            adjustStatEl('rmstat-disabled', newOn);
         }
     } catch(e) {
         alert('Toggle disabled failed: ' + e.message);
@@ -1887,6 +1872,7 @@ async function rmTogglePaused(td) {
         if (isBuiltin) {
             if (newOn) tr.classList.add('birow-paused'); else tr.classList.remove('birow-paused');
             applyBiRowFilters();
+            adjustStatEl('bistat-paused', newOn);
 
             // No-op save: re-POST existing settings unchanged so Hubitat updates
             // the app label server-side (appending/removing "(Paused)"), making the
@@ -1956,6 +1942,7 @@ async function rmTogglePaused(td) {
         } else {
             if (newOn) tr.classList.add('rmrow-paused'); else tr.classList.remove('rmrow-paused');
             applyRmRowFilters();
+            adjustStatEl('rmstat-paused', newOn);
         }
     } catch(e) {
         alert('Toggle paused failed: ' + e.message);
@@ -1992,6 +1979,7 @@ async function rmTogglePB(td) {
         td.setAttribute('data-sort', newOn ? '2' : '1');   // three-way: unknown=0, false=1, true=2
         td.innerHTML = newOn ? "<span style='color:blue;font-weight:bold;'>TRUE</span>"
                              : "<span style='color:#aaa;'>FALSE</span>";
+        updateRmStatsForPb(newOn);
     } catch(e) {
         alert('Toggle Private Boolean failed: ' + e.message);
     } finally {
@@ -2217,18 +2205,18 @@ String buildReportHtml(List<Map> rows) {
 // stubs in buildReportHtml ensure rmToggle* can dispatch before this script loads.
 
 String buildBuiltinReportHtml(List<Map> rows) {
-    if (!rows) return ""
+    if (!rows) return "<p>No supported built-in apps found.</p>"
 
     // Read builtin-specific visibility settings
-    boolean cfgHideBiRowDisabled = settings.hideBiRowDisabled ?: false
-    boolean cfgHideBiRowPaused   = settings.hideBiRowPaused   ?: false
-    boolean cfgHideBiRowLogOff   = settings.hideBiRowLogOff   ?: false
-    boolean cfgHideBiColRuleId   = settings.hideBiColRuleId   ?: false
-    boolean cfgHideBiColAppType  = settings.hideBiColAppType  ?: false
-    boolean cfgHideBiColDisabled = settings.hideBiColDisabled ?: false
-    boolean cfgHideBiColPaused   = settings.hideBiColPaused   ?: false
-    boolean cfgHideBiColLogging  = settings.hideBiColLogging  ?: false
-    boolean cfgHideBiColLastRun  = settings.hideBiColLastRun  ?: false
+    boolean cfgHideBiRowDisabled = getPref("hideBiRowDisabled", false)
+    boolean cfgHideBiRowPaused   = getPref("hideBiRowPaused",   false)
+    boolean cfgHideBiRowLogOff   = getPref("hideBiRowLogOff",   true)
+    boolean cfgHideBiColRuleId   = getPref("hideBiColRuleId",   false)
+    boolean cfgHideBiColAppType  = getPref("hideBiColAppType",  false)
+    boolean cfgHideBiColDisabled = getPref("hideBiColDisabled", false)
+    boolean cfgHideBiColPaused   = getPref("hideBiColPaused",   false)
+    boolean cfgHideBiColLogging  = getPref("hideBiColLogging",  false)
+    boolean cfgHideBiColLastRun  = getPref("hideBiColLastRun",  false)
 
     StringBuilder sb = new StringBuilder()
 
