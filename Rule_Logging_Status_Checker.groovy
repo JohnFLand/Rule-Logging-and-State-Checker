@@ -13,9 +13,15 @@
  *      /installedapp/statusJson/{appId}
  *      /installedapp/configure/json/{appId}  (logging toggle feature)
  *      /installedapp/update/json             (logging toggle feature)
+ *      /installedapp/disable                 (Disabled toggle; expects JSON body {id,disable} on
+ *                                             firmware 2.5.0.139+, form-urlencoded on earlier builds)
+ *      /installedapp/btn                     (Paused toggle)
+ *      /device/fullJson/{deviceId}           (used by Device Status Checker companion app)
+ *      /device/update                        (used by Device Status Checker companion app)
  *      /apps/api/{thisAppId}/setPB           (Private Boolean toggle — this app's OAuth endpoint)
  *  - Some of these endpoints are not a formal public API and could change in a
- *    future Hubitat platform release.
+ *    future Hubitat platform release. /installedapp/disable in particular changed its
+ *    expected payload format between firmware 2.5.0.136 and 2.5.0.139.
  *  - Private Boolean toggling uses RMUtils.sendAction() with RM version "5.0".
  *    Rules from earlier RM versions will display PB state but the toggle may not work.
  *
@@ -26,7 +32,7 @@ import hubitat.helper.RMUtils
 import groovy.transform.Field
 import groovy.transform.CompileStatic
 
-@Field static final String  RM_BASE_URL        = "http://127.0.0.1:8080"
+@Field static final String  RM_BASE_URL         = "http://127.0.0.1:8080"
 @Field static final String  RM_VERSION          = "5.0"
 @Field static final int     SCAN_TIMEOUT_SECS   = 360   // max seconds before scan is force-finalized
 @Field static final int     LOGS_OFF_DELAY_SECS = 1800  // seconds before debug logging auto-disables
@@ -40,17 +46,17 @@ import groovy.transform.CompileStatic
 @Field static Map       scanPartialResults = null   // keyed by ruleId String; holds both RM/BC and builtin rows
 
 definition(
-    name:        "Rule Logging and State Checker 1.63",
-    namespace:   "John Land",
-    author:      "John Land & AI",
-    description: "Reports logging status and Disabled, Paused, and Private Boolean states for Hubitat rules.",
-    category:    "Utility",
+    name:           "Rule Logging and State Checker 1.68",
+    namespace:      "John Land",
+    author:         "John Land & AI",
+    description:    "Reports logging status and Disabled, Paused, and Private Boolean states for Hubitat rules.",
+    category:       "Utility",
     singleInstance: true,
     installOnOpen:  true,
     oauth:          true,
-    iconUrl:   '',
-    iconX2Url: '',
-    importUrl: "https://raw.githubusercontent.com/JohnFLand/Rule-Logging-and-State-Checker/refs/heads/main/Rule_Logging_Status_Checker.groovy"
+    iconUrl:        '',
+    iconX2Url:      '',
+    importUrl:      "https://raw.githubusercontent.com/JohnFLand/Rule-Logging-and-State-Checker/refs/heads/main/Rule_Logging_Status_Checker.groovy"
 )
 
 preferences {
@@ -421,9 +427,10 @@ def mainPage() {
                 applies to it.
                 <br>
                 <b>Name filter</b><br>
-                Each table has a wildcard filter field. Use <b>*</b> to match any sequence of characters
-                and <b>?</b> to match any single character, e.g. <code>Contact*TU</code> or
-                <code>*Motion*</code>. Filtering is case-insensitive and combines with the row filter
+                Each table has a name filter field. Plain text performs a case-insensitive substring match,
+                so partial searches do not require wildcards. Optional wildcard patterns are also supported:
+                use <b>*</b> to match any sequence of characters and <b>?</b> to match any single character,
+                e.g. <code>Contact*TU</code> or <code>*Motion*</code>. Filtering combines with the row filter
                 buttons — a row must pass both to be visible.
                 <br>
                 <b>Table Visibility</b><br>
@@ -452,6 +459,12 @@ def mainPage() {
                 After toggling <b>Paused</b> in the Built-in App Logging table, the rule is
                 correctly paused immediately, but the <b>(Paused)</b> label on the Automations
                 page may require a browser page refresh to appear.
+                <br>
+                <b>Note on in-place toggles and cached data</b><br>
+                In-place cell toggles update the live table and summary counts immediately.
+                However, printable HTML reports and CSV exports are built from the data captured
+                during the last scan — they will not reflect in-place changes until you run
+                <b>Scan All Rules</b> again.
                 <br>
                 <b>Private Boolean (RM/BC table)</b><br>
                 Click any <b>Private Bool</b> cell to toggle a rule's Private Boolean between TRUE and FALSE.
@@ -485,9 +498,11 @@ def mainPage() {
                 appears in the Hubitat Apps list and logs.<br>
                 &bull; <b>Printable HTML reports</b> — opens a clean, print-optimised version of each
                 table in a new browser tab. All rows are shown regardless of current filter state.
-                Use the browser's Print or Save as PDF function from that tab.<br>
+                Use the browser's Print or Save as PDF function from that tab.
+                Reports reflect the last scan; run <b>Scan All Rules</b> first to include recent in-place changes.<br>
                 &bull; <b>CSV export</b> — downloads the table data as a CSV file
-                (<i>RM-BC_Rules.csv</i> or <i>Built-In_Rules.csv</i>) for use in a spreadsheet.<br>
+                (<i>RM-BC_Rules.csv</i> or <i>Built-In_Rules.csv</i>) for use in a spreadsheet.
+                Exports reflect the last scan; run <b>Scan All Rules</b> first to include recent in-place changes.<br>
                 &bull; <b>Enable debug logging</b> — turns on verbose logging to the Hubitat log
                 for 30 minutes, then disables itself automatically.
                 <br>
@@ -495,7 +510,9 @@ def mainPage() {
                 This app uses Hubitat local/internal JSON endpoints. Those endpoints and Rule Machine /
                 Button Controller / built-in app internal setting names are not a formal public API,
                 so the detection logic may need to be adjusted if Hubitat changes the JSON format in a
-                future platform update.
+                future platform update. For example, the <code>/installedapp/disable</code> endpoint
+                changed its expected payload format (form-urlencoded → JSON body) between firmware
+                2.5.0.136 and 2.5.0.139.
                 <br>
             """
         }
@@ -1000,7 +1017,7 @@ def handleSetPrefEndpoint() {
     String key   = params?.key?.toString()
     String value = params?.value?.toString()
     if (!key) { return renderJson([status: "error", message: "missing key"]) }
-    Map prefs = (state.userPrefs ?: [:]) as Map
+    Map prefs  = (state.userPrefs ?: [:]) as Map
     prefs[key] = value
     state.userPrefs = prefs
     return renderJson([status: "success"])
@@ -1012,7 +1029,6 @@ boolean getPref(String key, boolean defaultVal = false) {
     if (prefs.containsKey(key)) return prefs[key]?.toString() == "true"
     return defaultVal
 }
-
 
 // ============================================================
 // Report endpoint — printable HTML and CSV exports
@@ -1027,7 +1043,7 @@ def handleReportEndpoint() {
         return
     }
     String table = (params?.table ?: "rm").toString().toLowerCase()
-    String html = (table == "builtin") ? buildBuiltinPrintHtml() : buildRmPrintHtml()
+    String html  = (table == "builtin") ? buildBuiltinPrintHtml() : buildRmPrintHtml()
     render contentType: "text/html; charset=UTF-8", data: html
 }
 
@@ -1169,8 +1185,8 @@ String buildRmCsv() {
         sb << "${escapeCsv(r.id)},${escapeCsv(r.name)},${escapeCsv(r.appType)}"
         sb << ",${r.disabled ? "Yes" : "No"},${r.paused ? "Yes" : "No"}"
         sb << ",${ev}"
-        sb << ",${r.triggersOn == null ? "—" : (r.triggersOn as Boolean) ? "ON" : "OFF"}"
-        sb << ",${r.actionsOn  == null ? "—" : (r.actionsOn  as Boolean) ? "ON" : "OFF"}"
+        sb << ",${r.triggersOn == null  ? "—" : (r.triggersOn as Boolean)  ? "ON"   : "OFF"}"
+        sb << ",${r.actionsOn  == null  ? "—" : (r.actionsOn  as Boolean)  ? "ON"   : "OFF"}"
         sb << ",${r.privateBool == null ? "—" : (r.privateBool as Boolean) ? "TRUE" : "FALSE"}"
         sb << ",${escapeCsv(r.lastRun)}\n"
     }
@@ -1568,6 +1584,7 @@ function isHiddenButton(id) {
 }
 
 // Convert a wildcard pattern (* = any chars, ? = any single char) to a RegExp.
+// Plain filter text is handled separately as a case-insensitive substring match.
 function wildcardToRegex(pattern) {
     var result = '';
     for (var i = 0; i < pattern.length; i++) {
@@ -1587,18 +1604,27 @@ function applyRmRowFilters() {
     var filterEl  = document.getElementById('rmname-filter');
     var filterVal = filterEl ? filterEl.value.trim() : '';
     var filterRe  = null;
+    var hasWild   = filterVal.indexOf('*') >= 0 || filterVal.indexOf('?') >= 0;
+    var lowerSub  = '';
     if (filterVal) {
-        try { filterRe = wildcardToRegex(filterVal); } catch(e) { filterRe = null; }
+        if (hasWild) {
+            // Wildcard pattern — full-string match with * and ? expansion.
+            try { filterRe = wildcardToRegex(filterVal); } catch(e) { filterRe = null; }
+        } else {
+            // Plain text — case-insensitive substring match; no wildcards needed.
+            lowerSub = filterVal.toLowerCase();
+        }
     }
     document.querySelectorAll('#rmlog_table tbody tr').forEach(function(tr) {
         var hide =
             (hideDisabled && tr.classList.contains('rmrow-disabled')) ||
             (hidePaused   && tr.classList.contains('rmrow-paused'))   ||
             (hideLogOff   && tr.classList.contains('rmrow-logoff'));
-        if (!hide && filterRe) {
+        if (!hide && filterVal) {
             var nameCell = tr.querySelectorAll('td')[1];
             var nm = nameCell ? (nameCell.getAttribute('data-sort') || nameCell.textContent || '').trim() : '';
-            if (!filterRe.test(nm)) hide = true;
+            if      (filterRe) { hide = !filterRe.test(nm); }
+            else if (lowerSub) { hide = nm.toLowerCase().indexOf(lowerSub) < 0; }
         }
         tr.style.display = hide ? 'none' : '';
     });
@@ -1784,22 +1810,32 @@ async function rmToggleDisabled(td) {
     td.dataset.toggling = '1';
     td.classList.remove('rmlog-clickable');
     td.classList.add('rmlog-toggling');
-    var ruleId = td.dataset.ruleId, newOn = td.dataset.on !== 'true';
+    var ruleId   = td.dataset.ruleId;
+    var newOn    = td.dataset.on !== 'true';
+    var tr       = td.closest('tr');
+    var isBuiltin = tr && tr.closest('#builtin_table');
     try {
+        if (!/^\\d+$/.test(String(ruleId))) throw new Error('Invalid rule id: ' + ruleId);
+        // Hubitat 2.5.0.139+ changed /installedapp/disable to expect a JSON body
+        // (Content-Type: application/json, id as integer, disable as boolean).
+        // Earlier firmware used application/x-www-form-urlencoded.
         var resp = await fetch('/installedapp/disable', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ id: ruleId, disable: String(newOn) }).toString()
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ id: parseInt(ruleId, 10), disable: newOn })
         });
-        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        if (!resp.ok) {
+            var errText = '';
+            try { errText = await resp.text(); } catch(ignore) {}
+            throw new Error('HTTP ' + resp.status + (errText ? ': ' + errText.substring(0, 120) : ''));
+        }
         var result = await resp.json();
         if (result.result !== newOn) throw new Error(JSON.stringify(result));
         td.dataset.on = String(newOn);
         td.setAttribute('data-sort', newOn ? '1' : '0');
         td.innerHTML = newOn ? "<span style='color:red;font-weight:bold;'>Yes</span>"
                              : "<span style='color:green;font-weight:bold;'>No</span>";
-        var tr = td.closest('tr');
-        if (tr && tr.closest('#builtin_table')) {
+        if (isBuiltin) {
             if (newOn) tr.classList.add('birow-disabled'); else tr.classList.remove('birow-disabled');
             applyBiRowFilters();
             adjustStatEl('bistat-disabled', newOn);
@@ -1881,9 +1917,9 @@ async function rmTogglePaused(td) {
             // Wrapped in its own try-catch: if this fails the pause already succeeded.
             if (cfg) {
                 try {
-                    var appInfo    = cfg.app        || {};
-                    var configPage = cfg.configPage || {};
-                    var settings   = cfg.settings   || {};
+                    var appInfo    = cfg.app         || {};
+                    var configPage = cfg.configPage  || {};
+                    var settings   = cfg.settings    || {};
                     var pageName   = configPage.name || 'mainPage';
                     var sections   = configPage.sections || [];
                     var nfd = new URLSearchParams();
@@ -2065,7 +2101,7 @@ String buildReportHtml(List<Map> rows) {
     sb << "<span id='rmtoggle-rmcol-pb'       class='${btnColPB}'       data-pref-key='hideColPB' onclick=\"toggleRmCol('rmcol-pb',this)\">Private Bool</span>"
     sb << "<span id='rmtoggle-rmcol-lastrun'  class='${btnColLastRun}'  data-pref-key='hideColLastRun' onclick=\"toggleRmCol('rmcol-lastrun',this)\">Last Run</span>"
     sb << "&nbsp;&nbsp;<b>Filter:</b>&nbsp;"
-    sb << "<input id='rmname-filter' type='text' class='rmname-filter' placeholder='Rule name (* and ? wildcards)' oninput='applyRmRowFilters()' style='width:230px;'>"
+    sb << "<input id='rmname-filter' type='text' class='rmname-filter' placeholder='Rule name (substring or * ? wildcards)' oninput='applyRmRowFilters()' style='width:300px;'>"
     sb << "</div>"
 
     sb << "<table id='rmlog_table' class='rmlogcheck'><thead><tr>"
@@ -2105,7 +2141,7 @@ String buildReportHtml(List<Map> rows) {
         String  pbFmt  = (pbVal == null)  ? "<span style='color:#999;'>—</span>"
                        : pbVal            ? "<span style='color:blue;font-weight:bold;'>TRUE</span>"
                                           : "<span style='color:#aaa;'>FALSE</span>"
-        String pbSort  = (pbVal == true) ? "2" : (pbVal == false) ? "1" : "0"
+        String pbSort  = (pbVal == true)  ? "2" : (pbVal == false) ? "1" : "0"
 
         String lastRun = htmlEncode(r.lastRun ?: "")
 
@@ -2237,16 +2273,27 @@ function applyBiRowFilters() {
     var filterEl  = document.getElementById('biname-filter');
     var filterVal = filterEl ? filterEl.value.trim() : '';
     var filterRe  = null;
-    if (filterVal) { try { filterRe = wildcardToRegex(filterVal); } catch(e) { filterRe = null; } }
+    var hasWild   = filterVal.indexOf('*') >= 0 || filterVal.indexOf('?') >= 0;
+    var lowerSub  = '';
+    if (filterVal) {
+        if (hasWild) {
+            // Wildcard pattern — full-string match with * and ? expansion.
+            try { filterRe = wildcardToRegex(filterVal); } catch(e) { filterRe = null; }
+        } else {
+            // Plain text — case-insensitive substring match; no wildcards needed.
+            lowerSub = filterVal.toLowerCase();
+        }
+    }
     document.querySelectorAll('#builtin_table tbody tr').forEach(function(tr) {
         var hide =
             (hideDisabled && tr.classList.contains('birow-disabled')) ||
             (hidePaused   && tr.classList.contains('birow-paused'))   ||
             (hideLogOff   && tr.classList.contains('birow-logoff'));
-        if (!hide && filterRe) {
+        if (!hide && filterVal) {
             var nameCell = tr.querySelectorAll('td')[1];
             var nm = nameCell ? (nameCell.getAttribute('data-sort') || nameCell.textContent || '').trim() : '';
-            if (!filterRe.test(nm)) hide = true;
+            if      (filterRe) { hide = !filterRe.test(nm); }
+            else if (lowerSub) { hide = nm.toLowerCase().indexOf(lowerSub) < 0; }
         }
         tr.style.display = hide ? 'none' : '';
     });
@@ -2283,7 +2330,7 @@ function toggleBiRowFilter(btn) {
     sb << "<span id='bitoggle-bicol-logging'  class='${btnBiColLogging}'  data-pref-key='hideBiColLogging' onclick=\"toggleRmCol('bicol-logging',this)\">Logging</span>"
     sb << "<span id='bitoggle-bicol-lastrun'  class='${btnBiColLastRun}'  data-pref-key='hideBiColLastRun' onclick=\"toggleRmCol('bicol-lastrun',this)\">Last Run</span>"
     sb << "&nbsp;&nbsp;<b>Filter:</b>&nbsp;"
-    sb << "<input id='biname-filter' type='text' class='rmname-filter' placeholder='Name (* and ? wildcards)' oninput='applyBiRowFilters()' style='width:230px;'>"
+    sb << "<input id='biname-filter' type='text' class='rmname-filter' placeholder='Rule name (substring or * ? wildcards)' oninput='applyBiRowFilters()' style='width:300px;'>"
     sb << "</div>"
 
     sb << "<table id='builtin_table' class='rmlogcheck'><thead><tr>"
