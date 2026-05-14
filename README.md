@@ -22,7 +22,7 @@ Rule types that expose only one broad logging toggle (rather than separate Event
 
 ## Screenshot
 
-![Rule Logging and State Checker screenshot](Screenshot%202026-05-07.png)
+![Rule Logging and State Checker screenshot](Screenshot%202026-05-07%20231828.png)
 
 ---
 
@@ -74,6 +74,12 @@ Click any **Logging**, **Disabled**, or **Paused** cell to toggle that setting i
 
 ---
 
+## In-Place Toggles and Cached Data
+
+In-place cell toggles update the live table and summary counts immediately. However, printable HTML reports and CSV exports are built from the data captured during the last scan — they will not reflect in-place changes until you run **Scan All Rules** again.
+
+---
+
 ## Private Boolean (RM/BC Table)
 
 Click any **Private Bool** cell to toggle a rule's Private Boolean between TRUE and FALSE. TRUE is displayed in bold blue; FALSE in grey. Cells showing **—** mean the PB state could not be read and are not clickable.
@@ -101,15 +107,15 @@ Shown as part of each table's heading area. Counts are computed from the most re
 The collapsible **Controls** section provides four functions:
 
 - **App instance name** — type a custom name for this app instance; the name appears in the Hubitat Apps list and logs.
-- **Printable HTML reports** — opens a clean, print-optimised version of each table in a new browser tab. All rows are shown regardless of current filter state. Use the browser's Print or Save as PDF function from that tab.
-- **CSV export** — downloads the table data as a CSV file (*RM-BC_Rules.csv* or *Built-In_Rules.csv*) for use in a spreadsheet.
+- **Printable HTML reports** — opens a clean, print-optimised version of each table in a new browser tab. All rows are shown regardless of current filter state. Use the browser's Print or Save as PDF function from that tab. Reports reflect the last scan; run **Scan All Rules** first to include recent in-place changes.
+- **CSV export** — downloads the table data as a CSV file (*RM-BC_Rules.csv* or *Built-In_Rules.csv*) for use in a spreadsheet. Exports reflect the last scan; run **Scan All Rules** first to include recent in-place changes.
 - **Enable debug logging** — turns on verbose logging to the Hubitat log for 30 minutes, then disables itself automatically.
 
 ---
 
 ## Warning
 
-This app uses Hubitat local/internal JSON endpoints. Those endpoints and Rule Machine / Button Controller / built-in app internal setting names are not a formal public API, so the detection logic may need to be adjusted if Hubitat changes the JSON format in a future platform update.
+This app uses Hubitat local/internal JSON endpoints. Those endpoints and Rule Machine / Button Controller / built-in app internal setting names are not a formal public API, so the detection logic may need to be adjusted if Hubitat changes the JSON format in a future platform update. For example, the `/installedapp/disable` endpoint changed its expected payload format (form-urlencoded → JSON body) between firmware 2.5.0.136 and 2.5.0.139.
 
 ---
 
@@ -117,6 +123,9 @@ This app uses Hubitat local/internal JSON endpoints. Those endpoints and Rule Ma
 
 | Version | Changes |
 |---------|---------|
+| 1.68 | Disabled toggle updated for Hubitat 2.5.0.139+: /installedapp/disable now expects JSON body (id as integer, disable as boolean) rather than form-urlencoded |
+| 1.62 | Version bump |
+| 1.61 | Stats lines update live after every in-place cell toggle; Disabled and Paused counts added to both stats lines; anyLogging recount uses Set-based DOM query for reliability |
 | 1.60 | Controls section: app rename, printable HTML reports, CSV export per table, debug toggle; Private Bool TRUE now bold blue, FALSE capitalised |
 | 1.59 | Events/Triggers/Actions column order throughout to match RM UI; persistent Hide table toggles below each table |
 | 1.58 | Row/column toggle buttons auto-persist via /setpref OAuth endpoint — no Done press needed; Custom Settings sections removed |
