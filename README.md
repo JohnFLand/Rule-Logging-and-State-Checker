@@ -20,12 +20,6 @@ Rule types that expose only one broad logging toggle (rather than separate Event
 
 ---
 
-## Screenshot
-
-![Rule Logging and State Checker screenshot](Screenshot%202026-05-07%20231828.png)
-
----
-
 ## Scanning
 
 Click **Scan All Rules** to start a scan. Both tables update automatically when the scan finishes — no manual refresh needed. Clicking **Done** and reopening the app re-renders both tables instantly from cached data, so display setting changes take effect without a rescan (but use data from the previous scan). If you install a new version, run a fresh scan once to regenerate the tables with any new columns or buttons.
