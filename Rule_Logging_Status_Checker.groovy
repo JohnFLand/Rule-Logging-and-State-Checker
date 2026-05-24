@@ -46,7 +46,7 @@ import groovy.transform.CompileStatic
 @Field static Map       scanPartialResults = null   // keyed by ruleId String; holds both RM/BC and builtin rows
 
 definition(
-    name:           "Rule Logging and State Checker 1.68",
+    name:           "Rule Logging and State Checker 1.70",
     namespace:      "John Land",
     author:         "John Land & AI",
     description:    "Reports logging status and Disabled, Paused, and Private Boolean states for Hubitat rules.",
@@ -80,12 +80,14 @@ mappings {
 // ============================================================
 
 void installed() {
+    syncAppInstanceLabel()
     checkOAuth()           // auto-enable OAuth and create token on first install
     initialize()
     runIn(10, "findLoggingRules")
 }
 
 void updated() {
+    syncAppInstanceLabel()
     boolean scanWasActive = (currentScanId != null)
     initialize()
     if (scanWasActive) {
@@ -94,6 +96,52 @@ void updated() {
         reRenderReportIfCached()
     }
 }
+
+/* --------------------------------------------------------------------------
+ * App instance label helpers
+ * -------------------------------------------------------------------------- */
+
+private String getAppDisplayName() {
+    String requested = settings?.vAppLabel?.toString()?.trim()
+    if (requested) return requested
+
+    // Legacy fallback for instances that already saved the old input "label" value.
+    String legacyRequested = settings?.label?.toString()?.trim()
+    if (legacyRequested) return legacyRequested
+
+    String currentLabel = app?.label?.toString()?.trim()
+    if (currentLabel) return currentLabel
+
+    return app?.name?.toString() ?: "Rule Logging and State Checker"
+}
+
+private void syncAppInstanceLabel() {
+    String requested = settings?.vAppLabel?.toString()?.trim()
+    if (!requested) requested = settings?.label?.toString()?.trim()   // legacy old-control value
+    if (!requested) return
+
+    String currentLabel = app?.label?.toString()?.trim()
+    if (requested == currentLabel) return
+
+    try {
+        app.updateLabel(requested)
+        if (debugEnable) log.debug "Rule Logging and State Checker: app label updated to '${requested}'"
+    } catch (Exception e) {
+        log.warn "Rule Logging and State Checker: app label update failed — ${e.message}"
+    }
+}
+
+private void resetAppInstanceLabel() {
+    String defaultName = app?.name?.toString() ?: "Rule Logging and State Checker"
+    try {
+        app.updateLabel(defaultName)
+        app.updateSetting("vAppLabel", [value: defaultName, type: "text"])
+        log.info "Rule Logging and State Checker: app label reset to app name '${defaultName}'"
+    } catch (Exception e) {
+        log.warn "Rule Logging and State Checker: app label reset failed — ${e.message}"
+    }
+}
+
 
 void initialize() {
     if (currentScanId != null) {
@@ -274,13 +322,11 @@ def mainPage() {
     // Attempt to create the OAuth token on every page open — covers the case where the
     // user has just enabled OAuth in Apps Code and re-opened the app.
     checkOAuth()
+    syncAppInstanceLabel()
 
     int pollInterval = currentScanId ? 5 : 0
-    dynamicPage(name: "mainPage", title: "", install: true, uninstall: true, refreshInterval: pollInterval) {
-
-        section("") {
-            paragraph "<b style='font-size:1.1em;'>${app.name}</b>"
-        }
+    String pageTitle = htmlEncode(getAppDisplayName())
+    dynamicPage(name: "mainPage", title: "<b>${pageTitle}</b>", install: true, uninstall: true, refreshInterval: pollInterval) {
 
         section("NOTE: Scanning may take a while, be patient!") {
             input "btnScan", "button", title: "Scan All Rules"
@@ -360,7 +406,11 @@ def mainPage() {
 
         section("Controls", hideable: true, hidden: true) {
             // ── App instance rename ───────────────────────────────────────
-            input "label", "text", title: "<b>App instance name</b>", defaultValue: app.name, submitOnChange: true
+            // Use a normal text preference and explicitly call app.updateLabel().
+            // The built-in Hubitat label control can show the edited value without
+            // reliably updating the actual app instance label on this dynamic page.
+            input "vAppLabel", "text", title: "<b>App instance name</b>", defaultValue: getAppDisplayName(), submitOnChange: true, width: 9
+            input "btnResetAppLabel", "button", title: "Reset to App Name", width: 3
 
             // ── Report links — only available after a scan with a token ───
             if (state.accessToken) {
@@ -495,7 +545,7 @@ def mainPage() {
                 <b>Controls section</b><br>
                 The collapsible <b>Controls</b> section (above Notes) provides four functions:<br>
                 &bull; <b>App instance name</b> — type a custom name for this app instance; the name
-                appears in the Hubitat Apps list and logs.<br>
+                appears in the Hubitat Apps list and logs. <b>Reset to App Name</b> restores the current app code name/version.<br>
                 &bull; <b>Printable HTML reports</b> — opens a clean, print-optimised version of each
                 table in a new browser tab. All rows are shown regardless of current filter state.
                 Use the browser's Print or Save as PDF function from that tab.
@@ -523,6 +573,9 @@ def appButtonHandler(String btn) {
     switch (btn) {
         case "btnScan":
             findLoggingRules()
+            break
+        case "btnResetAppLabel":
+            resetAppInstanceLabel()
             break
         default:
             log.warn "Unknown button: ${btn}"
