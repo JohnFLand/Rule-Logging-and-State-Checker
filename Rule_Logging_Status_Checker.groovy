@@ -46,7 +46,7 @@ import groovy.transform.CompileStatic
 @Field static Map       scanPartialResults = null   // keyed by ruleId String; holds both RM/BC and builtin rows
 
 definition(
-    name:           "Rule Logging and State Checker 1.70",
+    name:           "Rule Logging and State Checker 1.71",
     namespace:      "John Land",
     author:         "John Land & AI",
     description:    "Reports logging status and Disabled, Paused, and Private Boolean states for Hubitat rules.",
@@ -366,7 +366,8 @@ def mainPage() {
                           "<b>Actions:</b> <span id='rmstat-actions'>${state.actionsOnCount ?: 0}</span>; " +
                           "<b>Private Bool TRUE:</b> <span id='rmstat-pb'>${state.privateBoolOnCount ?: 0}</span>; " +
                           "<b>Disabled:</b> <span id='rmstat-disabled'>${state.disabledCount ?: 0}</span>; " +
-                          "<b>Paused:</b> <span id='rmstat-paused'>${state.pausedCount ?: 0}</span>" +
+                          "<b>Paused:</b> <span id='rmstat-paused'>${state.pausedCount ?: 0}</span>; " +
+                          "<b>Stopped:</b> <span id='rmstat-stopped'>${state.stoppedCount ?: 0}</span>" +
                           "<br><br></div>"
             }
             paragraph(state.reportHtml ?: "Click <b>Scan All Rules</b> to begin.")
@@ -638,7 +639,8 @@ void findLoggingRules() {
          appType  : (r.appType ?: "RM")  as String,
          appClass : (r.appClass ?: "rm") as String,
          disabled : r.disabled           as Boolean,
-         paused   : r.paused             as Boolean]
+         paused   : r.paused             as Boolean,
+         stopped  : r.stopped            as Boolean]
     }
 
     state.scanStatus = "<i>Scan started: ${scanStartTime} — scanning ${queue.size()} apps…</i>"
@@ -661,6 +663,7 @@ void findLoggingRules() {
          appClass   : (first.appClass ?: "rm"),
          disabled   : first.disabled,
          paused     : first.paused,
+         stopped    : first.stopped,
          nextIdx    : 1,
          totalRules : queue.size()]
     )
@@ -703,6 +706,7 @@ void handleStatusResponse(resp, data) {
                 appClass : "builtin",
                 disabled : data.disabled,
                 paused   : data.paused,
+                stopped  : data.stopped,
                 logging  : loggingOn,
                 lastRun  : extractLastRun(status)
             ]
@@ -728,6 +732,7 @@ void handleStatusResponse(resp, data) {
                 appClass        : "rm",
                 disabled        : data.disabled,
                 paused          : data.paused,
+                stopped         : data.stopped,
                 actionsOn       : actionsOn,
                 eventsOn        : eventsOn,
                 triggersOn      : triggersOn,
@@ -748,12 +753,13 @@ void handleStatusResponse(resp, data) {
             scanPartialResults[ruleId] = [
                 id: ruleId, name: data.ruleName as String, appType: (data.appType ?: "") as String,
                 appClass: "builtin", disabled: data.disabled as Boolean, paused: data.paused as Boolean,
-                logging: null, lastRun: ""
+                stopped: data.stopped as Boolean, logging: null, lastRun: ""
             ]
         } else {
             scanPartialResults[ruleId] = [
                 id: ruleId, name: data.ruleName as String, appType: (data.appType ?: "RM") as String,
                 appClass: "rm", disabled: data.disabled as Boolean, paused: data.paused as Boolean,
+                stopped: data.stopped as Boolean,
                 actionsOn: false, eventsOn: false, triggersOn: false,
                 actionsField: null, eventsField: null, triggersField: null, allLoggingField: null,
                 lastRun: "", privateBool: null
@@ -778,6 +784,7 @@ void handleStatusResponse(resp, data) {
                  appClass   : (nextRule.appClass ?: "rm") as String,
                  disabled   : nextRule.disabled           as Boolean,
                  paused     : nextRule.paused             as Boolean,
+                 stopped    : nextRule.stopped            as Boolean,
                  nextIdx    : nextIdx + 1,
                  totalRules : totalRules]
             )
@@ -802,11 +809,12 @@ void finalizeScan() {
             return [id: rule.id as String, name: rule.name as String,
                     appType: (rule.appType ?: "") as String, appClass: "builtin",
                     disabled: rule.disabled as Boolean, paused: rule.paused as Boolean,
-                    logging: null, lastRun: ""]
+                    stopped: rule.stopped as Boolean, logging: null, lastRun: ""]
         }
         return [id: rule.id as String, name: rule.name as String,
                 appType: (rule.appType ?: "RM") as String, appClass: "rm",
                 disabled: rule.disabled as Boolean, paused: rule.paused as Boolean,
+                stopped: rule.stopped as Boolean,
                 actionsOn: false, eventsOn: false, triggersOn: false,
                 actionsField: null, eventsField: null, triggersField: null, allLoggingField: null,
                 lastRun: "", privateBool: null]
@@ -823,6 +831,7 @@ void finalizeScan() {
     Integer privateBoolOnCount = rmRows.count { it.privateBool == true } as Integer
     Integer disabledCount      = rmRows.count { it.disabled == true } as Integer
     Integer pausedCount        = rmRows.count { it.paused   == true } as Integer
+    Integer stoppedCount       = rmRows.count { it.stopped  == true } as Integer
 
     state.scannedCount        = rmRows.size()
     state.actionsOnCount      = actionsOnCount
@@ -832,6 +841,7 @@ void finalizeScan() {
     state.privateBoolOnCount  = privateBoolOnCount
     state.disabledCount       = disabledCount
     state.pausedCount         = pausedCount
+    state.stoppedCount        = stoppedCount
     state.lastScan            = new Date().format("yyyy-MM-dd HH:mm:ss", location.timeZone)
     state.scanDuration        = formatScanDuration((now() as Long) - (scanStartMs ?: now() as Long))
 
@@ -862,7 +872,7 @@ void finalizeScan() {
     scanPartialResults = null
     scanRuleQueue      = null
 
-    log.info "Scan complete in ${state.scanDuration}: ${rmRows.size()} RM/BC rules (any logging ON: ${anyLoggingOnCount}, Events: ${eventsOnCount}, Triggers: ${triggersOnCount}, Actions: ${actionsOnCount}, PB TRUE: ${privateBoolOnCount}); ${builtinRows.size()} built-in apps"
+    log.info "Scan complete in ${state.scanDuration}: ${rmRows.size()} RM/BC rules (any logging ON: ${anyLoggingOnCount}, Events: ${eventsOnCount}, Triggers: ${triggersOnCount}, Actions: ${actionsOnCount}, PB TRUE: ${privateBoolOnCount}, Stopped: ${stoppedCount}); ${builtinRows.size()} built-in apps"
 }
 
 void finalizeScanTimeout() {
@@ -928,13 +938,15 @@ private void collectRmLeafRules(Object node, String parentAppType, List<Map> rul
                 String finalAppType      = (parentAppType == "BC" || childDetectedType == "BC") ? "BC" : (childDetectedType ?: parentAppType)
 
                 seenIds << id
-                String ruleName = d.name.toString()
+                String ruleName      = d.name.toString()
+                String ruleNamePlain = ruleName.replaceAll(/<[^>]+>/, "").trim()
                 rules << [
                     id       : id,
                     name     : ruleName,
                     appType  : finalAppType,
                     disabled : asBooleanLoose(d.disabled),
-                    paused   : ruleName.contains("(Paused)")
+                    paused   : asBooleanLoose(d.paused)  || ruleNamePlain.endsWith("(Paused)")  || ruleNamePlain.endsWith(" Paused"),
+                    stopped  : asBooleanLoose(d.stopped) || ruleNamePlain.endsWith("(Stopped)") || ruleNamePlain.endsWith(" Stopped")
                 ]
             }
         }
@@ -1025,14 +1037,16 @@ private void collectBuiltinLeafRules(Object node, String appType, List<Map> apps
             String id = d.id.toString()
             if (!seenIds.contains(id)) {
                 seenIds << id
-                String ruleName = d.name.toString()
+                String ruleName      = d.name.toString()
+                String ruleNamePlain = ruleName.replaceAll(/<[^>]+>/, "").trim()
                 apps << [
                     id       : id,
                     name     : ruleName,
                     appType  : appType,
                     appClass : "builtin",
                     disabled : asBooleanLoose(d.disabled),
-                    paused   : ruleName.contains("(Paused)")
+                    paused   : asBooleanLoose(d.paused)  || ruleNamePlain.endsWith("(Paused)")  || ruleNamePlain.endsWith(" Paused"),
+                    stopped  : asBooleanLoose(d.stopped) || ruleNamePlain.endsWith("(Stopped)") || ruleNamePlain.endsWith(" Stopped")
                 ]
             }
         }
@@ -1169,7 +1183,7 @@ String buildRmPrintHtml() {
 
     StringBuilder sb = new StringBuilder()
     sb << "<table><thead><tr>"
-    ["Rule ID","Rule","App Type","Disabled","Paused","Events","Triggers","Actions","Private Bool","Last Run"].each {
+    ["Rule ID","Rule","App Type","Disabled","Paused","Stopped","Events","Triggers","Actions","Private Bool","Last Run"].each {
         sb << "<th>${it}</th>"
     }
     sb << "</tr></thead><tbody>"
@@ -1180,6 +1194,7 @@ String buildRmPrintHtml() {
         sb << "<td class='c'>${htmlEncode(r.appType ?: "")}</td>"
         sb << "<td class='c'>${yesNo(r.disabled as Boolean)}</td>"
         sb << "<td class='c'>${yesNo(r.paused   as Boolean)}</td>"
+        sb << "<td class='c'>${yesNo(r.stopped  as Boolean)}</td>"
         String evCell = (r.appType?.toString() == "BC") ? "—" : onOff(r.eventsOn   as Boolean)
         sb << "<td class='c'>${evCell}</td>"
         sb << "<td class='c'>${onOff(r.triggersOn as Boolean)}</td>"
@@ -1232,11 +1247,11 @@ String buildRmCsv() {
     rows = rows.sort { it.name?.toString()?.toLowerCase() ?: "" }
 
     StringBuilder sb = new StringBuilder()
-    sb << "Rule ID,Rule,App Type,Disabled,Paused,Events,Triggers,Actions,Private Bool,Last Run\n"
+    sb << "Rule ID,Rule,App Type,Disabled,Paused,Stopped,Events,Triggers,Actions,Private Bool,Last Run\n"
     rows.each { Map r ->
         String ev = (r.appType?.toString() == "BC") ? "—" : (r.eventsOn == null ? "—" : (r.eventsOn as Boolean) ? "ON" : "OFF")
         sb << "${escapeCsv(r.id)},${escapeCsv(r.name)},${escapeCsv(r.appType)}"
-        sb << ",${r.disabled ? "Yes" : "No"},${r.paused ? "Yes" : "No"}"
+        sb << ",${r.disabled ? "Yes" : "No"},${r.paused ? "Yes" : "No"},${r.stopped ? "Yes" : "No"}"
         sb << ",${ev}"
         sb << ",${r.triggersOn == null  ? "—" : (r.triggersOn as Boolean)  ? "ON"   : "OFF"}"
         sb << ",${r.actionsOn  == null  ? "—" : (r.actionsOn  as Boolean)  ? "ON"   : "OFF"}"
@@ -1653,6 +1668,7 @@ function wildcardToRegex(pattern) {
 function applyRmRowFilters() {
     var hideDisabled = isHiddenButton('rmtoggle-rmrow-disabled');
     var hidePaused   = isHiddenButton('rmtoggle-rmrow-paused');
+    var hideStopped  = isHiddenButton('rmtoggle-rmrow-stopped');
     var hideLogOff   = isHiddenButton('rmtoggle-rmrow-logoff');
     var filterEl  = document.getElementById('rmname-filter');
     var filterVal = filterEl ? filterEl.value.trim() : '';
@@ -1672,6 +1688,7 @@ function applyRmRowFilters() {
         var hide =
             (hideDisabled && tr.classList.contains('rmrow-disabled')) ||
             (hidePaused   && tr.classList.contains('rmrow-paused'))   ||
+            (hideStopped  && tr.classList.contains('rmrow-stopped'))  ||
             (hideLogOff   && tr.classList.contains('rmrow-logoff'));
         if (!hide && filterVal) {
             var nameCell = tr.querySelectorAll('td')[1];
@@ -2113,11 +2130,13 @@ String buildReportHtml(List<Map> rows) {
     // Read custom visibility settings — defaults match original behaviour (only No logging ON hidden)
     boolean cfgHideRowDisabled = getPref("hideRowDisabled", false)
     boolean cfgHideRowPaused   = getPref("hideRowPaused",   false)
+    boolean cfgHideRowStopped  = getPref("hideRowStopped",  false)
     boolean cfgHideRowLogOff   = getPref("hideRowLogOff",   true)
     boolean cfgHideColRuleId   = getPref("hideColRuleId",   false)
     boolean cfgHideColAppType  = getPref("hideColAppType",  false)
     boolean cfgHideColDisabled = getPref("hideColDisabled", false)
     boolean cfgHideColPaused   = getPref("hideColPaused",   false)
+    boolean cfgHideColStopped  = getPref("hideColStopped",  false)
     boolean cfgHideColActions  = getPref("hideColActions",  false)
     boolean cfgHideColEvents   = getPref("hideColEvents",   false)
     boolean cfgHideColTriggers = getPref("hideColTriggers", false)
@@ -2126,11 +2145,13 @@ String buildReportHtml(List<Map> rows) {
 
     String btnRowDisabled = cfgHideRowDisabled  ? "rmcol-btn hidden-col" : "rmcol-btn"
     String btnRowPaused   = cfgHideRowPaused    ? "rmcol-btn hidden-col" : "rmcol-btn"
+    String btnRowStopped  = cfgHideRowStopped   ? "rmcol-btn hidden-col" : "rmcol-btn"
     String btnRowLogOff   = cfgHideRowLogOff    ? "rmcol-btn hidden-col" : "rmcol-btn"
     String btnColRuleId   = cfgHideColRuleId    ? "rmcol-btn hidden-col" : "rmcol-btn"
     String btnColAppType  = cfgHideColAppType   ? "rmcol-btn hidden-col" : "rmcol-btn"
     String btnColDisabled = cfgHideColDisabled  ? "rmcol-btn hidden-col" : "rmcol-btn"
     String btnColPaused   = cfgHideColPaused    ? "rmcol-btn hidden-col" : "rmcol-btn"
+    String btnColStopped  = cfgHideColStopped   ? "rmcol-btn hidden-col" : "rmcol-btn"
     String btnColActions  = cfgHideColActions   ? "rmcol-btn hidden-col" : "rmcol-btn"
     String btnColEvents   = cfgHideColEvents    ? "rmcol-btn hidden-col" : "rmcol-btn"
     String btnColTriggers = cfgHideColTriggers  ? "rmcol-btn hidden-col" : "rmcol-btn"
@@ -2142,12 +2163,14 @@ String buildReportHtml(List<Map> rows) {
     // Row buttons use toggleRmRowFilter() so multiple active filters evaluate together
     sb << "<span id='rmtoggle-rmrow-disabled' class='${btnRowDisabled}' data-pref-key='hideRowDisabled' onclick=\"toggleRmRowFilter(this)\">Disabled rules</span>"
     sb << "<span id='rmtoggle-rmrow-paused'   class='${btnRowPaused}'   data-pref-key='hideRowPaused' onclick=\"toggleRmRowFilter(this)\">Paused rules</span>"
+    sb << "<span id='rmtoggle-rmrow-stopped'  class='${btnRowStopped}'  data-pref-key='hideRowStopped' onclick=\"toggleRmRowFilter(this)\">Stopped rules</span>"
     sb << "<span id='rmtoggle-rmrow-logoff'   class='${btnRowLogOff}'   data-pref-key='hideRowLogOff' onclick=\"toggleRmRowFilter(this)\">No logging ON</span>"
     sb << "&nbsp;&nbsp;<b>Hide columns:</b>&nbsp;"
     sb << "<span id='rmtoggle-rmcol-ruleid'   class='${btnColRuleId}'   data-pref-key='hideColRuleId' onclick=\"toggleRmCol('rmcol-ruleid',this)\">Rule ID</span>"
     sb << "<span id='rmtoggle-rmcol-apptype'  class='${btnColAppType}'  data-pref-key='hideColAppType' onclick=\"toggleRmCol('rmcol-apptype',this)\">App Type</span>"
     sb << "<span id='rmtoggle-rmcol-disabled' class='${btnColDisabled}' data-pref-key='hideColDisabled' onclick=\"toggleRmCol('rmcol-disabled',this)\">Disabled</span>"
     sb << "<span id='rmtoggle-rmcol-paused'   class='${btnColPaused}'   data-pref-key='hideColPaused' onclick=\"toggleRmCol('rmcol-paused',this)\">Paused</span>"
+    sb << "<span id='rmtoggle-rmcol-stopped'  class='${btnColStopped}'  data-pref-key='hideColStopped' onclick=\"toggleRmCol('rmcol-stopped',this)\">Stopped</span>"
     sb << "<span id='rmtoggle-rmcol-events'   class='${btnColEvents}'   data-pref-key='hideColEvents' onclick=\"toggleRmCol('rmcol-events',this)\">Events</span>"
     sb << "<span id='rmtoggle-rmcol-triggers' class='${btnColTriggers}' data-pref-key='hideColTriggers' onclick=\"toggleRmCol('rmcol-triggers',this)\">Triggers</span>"
     sb << "<span id='rmtoggle-rmcol-actions'  class='${btnColActions}'  data-pref-key='hideColActions' onclick=\"toggleRmCol('rmcol-actions',this)\">Actions</span>"
@@ -2163,11 +2186,12 @@ String buildReportHtml(List<Map> rows) {
     sb << "<th onclick=\"sortRmLogTable('rmlog_table',2)\" class='center rmcol-apptype'>App Type</th>"
     sb << "<th onclick=\"sortRmLogTable('rmlog_table',3)\" class='center rmcol-disabled'>Disabled</th>"
     sb << "<th onclick=\"sortRmLogTable('rmlog_table',4)\" class='center rmcol-paused'>Paused</th>"
-    sb << "<th onclick=\"sortRmLogTable('rmlog_table',5)\" class='center rmcol-events'>Events</th>"
-    sb << "<th onclick=\"sortRmLogTable('rmlog_table',6)\" class='center rmcol-triggers'>Triggers</th>"
-    sb << "<th onclick=\"sortRmLogTable('rmlog_table',7)\" class='center rmcol-actions'>Actions</th>"
-    sb << "<th onclick=\"sortRmLogTable('rmlog_table',8)\" class='center rmcol-pb'>Private Bool</th>"
-    sb << "<th onclick=\"sortRmLogTable('rmlog_table',9)\" class='center rmcol-lastrun'>Last Run</th>"
+    sb << "<th onclick=\"sortRmLogTable('rmlog_table',5)\" class='center rmcol-stopped'>Stopped</th>"
+    sb << "<th onclick=\"sortRmLogTable('rmlog_table',6)\" class='center rmcol-events'>Events</th>"
+    sb << "<th onclick=\"sortRmLogTable('rmlog_table',7)\" class='center rmcol-triggers'>Triggers</th>"
+    sb << "<th onclick=\"sortRmLogTable('rmlog_table',8)\" class='center rmcol-actions'>Actions</th>"
+    sb << "<th onclick=\"sortRmLogTable('rmlog_table',9)\" class='center rmcol-pb'>Private Bool</th>"
+    sb << "<th onclick=\"sortRmLogTable('rmlog_table',10)\" class='center rmcol-lastrun'>Last Run</th>"
     sb << "</tr></thead><tbody>"
 
     rows.each { Map r ->
@@ -2178,6 +2202,7 @@ String buildReportHtml(List<Map> rows) {
         boolean isBC       = (r.appType == "BC")
         String disabledFmt = formatYesNo(r.disabled   as Boolean)
         String pausedFmt   = formatYesNo(r.paused     as Boolean)
+        String stoppedFmt  = formatYesNo(r.stopped    as Boolean)
         String actionsFmt  = formatOnOff(r.actionsOn  as Boolean)
         String eventsFmt   = formatOnOff(r.eventsOn   as Boolean)
         String triggersFmt = formatOnOff(r.triggersOn as Boolean)
@@ -2201,12 +2226,14 @@ String buildReportHtml(List<Map> rows) {
         List<String> trClasses = []
         if (r.disabled as Boolean) trClasses << "rmrow-disabled"
         if (r.paused   as Boolean) trClasses << "rmrow-paused"
+        if (r.stopped  as Boolean) trClasses << "rmrow-stopped"
         if (!anyOn)                trClasses << "rmrow-logoff"
         String trAttr = trClasses
             ? " class='${trClasses.join(' ')}'" + (
                   (cfgHideRowLogOff   && !anyOn)                  ||
                   (cfgHideRowDisabled && (r.disabled as Boolean))  ||
-                  (cfgHideRowPaused   && (r.paused   as Boolean))
+                  (cfgHideRowPaused   && (r.paused   as Boolean))  ||
+                  (cfgHideRowStopped  && (r.stopped  as Boolean))
                   ? " style='display:none'" : "")
             : ""
 
@@ -2246,6 +2273,7 @@ String buildReportHtml(List<Map> rows) {
         sb << "<td class='center rmcol-apptype' data-sort='${appType}'>${appType}</td>"
         sb << "<td class='center rmcol-disabled rmlog-clickable' data-sort='${r.disabled ? '1' : '0'}' data-rule-id='${id}' data-on='${r.disabled as Boolean}' onclick='rmToggleDisabled(this)'>${disabledFmt}</td>"
         sb << "<td class='center rmcol-paused rmlog-clickable'   data-sort='${r.paused   ? '1' : '0'}' data-rule-id='${id}' data-on='${r.paused   as Boolean}' onclick='rmTogglePaused(this)'>${pausedFmt}</td>"
+        sb << "<td class='center rmcol-stopped'                  data-sort='${r.stopped  ? '1' : '0'}'>${stoppedFmt}</td>"
         // BC rules have no Events logging — render a non-clickable "—" cell instead
         if (isBC) {
             sb << "<td class='center rmcol-events' data-sort=''><span style='color:#999;'>—</span></td>"
@@ -2272,6 +2300,7 @@ String buildReportHtml(List<Map> rows) {
     if (cfgHideColAppType)  colClassesToHide << "'rmcol-apptype'"
     if (cfgHideColDisabled) colClassesToHide << "'rmcol-disabled'"
     if (cfgHideColPaused)   colClassesToHide << "'rmcol-paused'"
+    if (cfgHideColStopped)  colClassesToHide << "'rmcol-stopped'"
     if (cfgHideColActions)  colClassesToHide << "'rmcol-actions'"
     if (cfgHideColEvents)   colClassesToHide << "'rmcol-events'"
     if (cfgHideColTriggers) colClassesToHide << "'rmcol-triggers'"
