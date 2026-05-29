@@ -2,7 +2,7 @@
  *  Rule Logging and State Checker
  *
  *  Scans Rule Machine and Button Controller child apps and reports which rules appear to have
- *  Actions, Events, and/or Triggers logging enabled, plus Disabled, Paused, and Private Boolean states.
+ *  Actions, Events, and/or Triggers logging enabled, plus Disabled, Paused, Stopped, and Private Boolean states.
  *
  *  Designed initially by John Land, built by Claude AI with an assist by ChatGPT, then revised
  *  to incorporate the excellent work of and feedback from hubitrep (the clickable cells are genius).
@@ -49,7 +49,7 @@ definition(
     name:           "Rule Logging and State Checker 1.71",
     namespace:      "John Land",
     author:         "John Land & AI",
-    description:    "Reports logging status and Disabled, Paused, and Private Boolean states for Hubitat rules.",
+    description:    "Reports logging status and Disabled, Paused, Stopped, and Private Boolean states for Hubitat rules.",
     category:       "Utility",
     singleInstance: true,
     installOnOpen:  true,
@@ -451,7 +451,7 @@ def mainPage() {
             paragraph """
                 <b>Overview</b><br>
                 This app scans Rule Machine (<b>RM</b>) and Button Controller (<b>BC</b>) rules and
-                reports their logging status (Events, Triggers, Actions), Disabled and Paused states,
+                reports their logging status (Events, Triggers, Actions), Disabled, Paused, and Stopped states,
                 and Private Boolean value in a first table. It also scans rules of supported Hubitat built-in apps
                 (Notifications, Basic Rules, Simple Automation Rules, Basic Button Controller,
                 Room Lighting, Motion Lighting) and reports their Logging setting and Disabled and Paused
@@ -459,6 +459,10 @@ def mainPage() {
 
                 Button Controller rules show "<b>—</b>" in the Events column because BC rules have no
                 Events logging option.
+
+                The <b>Stopped</b> column (RM/BC table only) is read-only. A rule enters Stopped state
+                when Rule Machine stops it (e.g. via a Stop Actions action); this is detected from the
+                <b>(Stopped)</b> label or colour-marked word appended to the rule name by Hubitat.
 
                 Rule types that expose only one broad logging toggle (rather than separate
                 Events, Triggers, and Actions controls) appear in the Built-in App Logging table.
@@ -502,7 +506,8 @@ def mainPage() {
                 Click any <b>Events</b>, <b>Triggers</b>, <b>Actions</b>, <b>Disabled</b>, <b>Paused</b>,
                 or <b>Private Boolean</b> cell to toggle that rule's setting in-place.
                 The table cell updates immediately if successful.
-                
+                The <b>Stopped</b> column is read-only — there is no API to un-stop a rule from here.
+
                 Cells where the field name could not be determined are not clickable.
                 <br>
                 <b>Clickable cells — Built-in App Logging table</b><br>
@@ -540,8 +545,9 @@ def mainPage() {
                 Shown as part of each table's heading area. Counts are computed from the most recent
                 scan. Toggling any cell in-place updates both the cell and the relevant summary
                 count immediately — Events, Triggers, Actions, Private Boolean, Disabled, and Paused
-                all reflect in-place changes without a rescan. Run <b>Scan All Rules</b> again to
-                recompute all counts from a fresh scan.
+                all reflect in-place changes without a rescan. The <b>Stopped</b> count is set at
+                scan time only and does not update from in-place changes. Run <b>Scan All Rules</b>
+                again to recompute all counts from a fresh scan.
                 <br>
                 <b>Controls section</b><br>
                 The collapsible <b>Controls</b> section (above Notes) provides four functions:<br>
